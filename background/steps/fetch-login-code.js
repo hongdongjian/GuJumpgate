@@ -409,7 +409,7 @@
       if (mail?.provider === LUCKMAIL_PROVIDER) {
         return 15000;
       }
-      if (mail?.provider === HOTMAIL_PROVIDER || mail?.provider === '2925') {
+      if (mail?.provider === HOTMAIL_PROVIDER || mail?.provider === OUTLOOK_EMAIL_PLUS_PROVIDER || mail?.provider === '2925') {
         return 0;
       }
       return Math.max(0, Number(STANDARD_MAIL_VERIFICATION_RESEND_INTERVAL_MS) || 0);

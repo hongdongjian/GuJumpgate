@@ -4624,6 +4624,13 @@ function isLuckmailProvider(stateOrProvider) {
   return provider === LUCKMAIL_PROVIDER;
 }
 
+function isOutlookEmailPlusProvider(stateOrProvider) {
+  const provider = typeof stateOrProvider === 'string'
+    ? stateOrProvider
+    : stateOrProvider?.mailProvider;
+  return String(provider || '').trim().toLowerCase() === OUTLOOK_EMAIL_PLUS_PROVIDER;
+}
+
 function isCustomMailProvider(stateOrProvider) {
   const provider = typeof stateOrProvider === 'string'
     ? stateOrProvider
@@ -5512,6 +5519,7 @@ function isGeneratedAliasProvider(stateOrProvider, mail2925Mode = undefined) {
 function shouldUseCustomRegistrationEmail(state = {}) {
   return isCustomMailProvider(state)
     || (!isHotmailProvider(state)
+      && !isOutlookEmailPlusProvider(state)
       && !isGeneratedAliasProvider(state)
       && normalizeEmailGenerator(state.emailGenerator) === 'custom');
 }
@@ -5681,6 +5689,7 @@ function isGeneratedAliasProvider(stateOrProvider, mail2925Mode = undefined) {
 function shouldUseCustomRegistrationEmail(state = {}) {
   return isCustomMailProvider(state)
     || (!isHotmailProvider(state)
+      && !isOutlookEmailPlusProvider(state)
       && !isGeneratedAliasProvider(state)
       && normalizeEmailGenerator(state.emailGenerator) === 'custom');
 }
@@ -13654,6 +13663,9 @@ function getMailConfig(state) {
   }
   if (provider === HOTMAIL_PROVIDER) {
     return { provider: HOTMAIL_PROVIDER, label: 'Hotmail（API对接/本地助手）' };
+  }
+  if (provider === OUTLOOK_EMAIL_PLUS_PROVIDER) {
+    return { provider: OUTLOOK_EMAIL_PLUS_PROVIDER, label: 'outlookEmailPlus' };
   }
   if (provider === ICLOUD_PROVIDER) {
     const configuredHost = getConfiguredIcloudHostPreference(state)
