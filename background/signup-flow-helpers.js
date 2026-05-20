@@ -10,10 +10,12 @@
       ensureHotmailAccountForFlow,
       ensureMail2925AccountForFlow,
       ensureLuckmailPurchaseForFlow,
+      ensureOutlookEmailPlusEmailForFlow = null,
       fetchGeneratedEmail,
       isGeneratedAliasProvider,
       isReusableGeneratedAliasEmail,
       isHotmailProvider,
+      isOutlookEmailPlusProvider = () => false,
       isRetryableContentScriptTransportError = () => false,
       isLuckmailProvider,
       isSignupEmailVerificationPageUrl,
@@ -349,6 +351,10 @@
           preferredAccountId: state.currentHotmailAccountId || null,
         });
         resolvedEmail = account.registrationAliasEmail || account.email;
+      } else if (isOutlookEmailPlusProvider(state) && typeof ensureOutlookEmailPlusEmailForFlow === 'function') {
+        const result = await ensureOutlookEmailPlusEmailForFlow({ state });
+        resolvedEmail = result?.email || result?.registrationAliasEmail || resolvedEmail;
+        generatedEmailAlreadyPersisted = true;
       } else if (isLuckmailProvider(state)) {
         const purchase = await ensureLuckmailPurchaseForFlow({ allowReuse: true });
         resolvedEmail = purchase.email_address;

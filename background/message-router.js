@@ -172,6 +172,8 @@
       setLuckmailPurchasePreservedState,
       setLuckmailPurchaseUsedState,
       setPersistentSettings,
+      outlookEmailPlusProvider = null,
+      outlookEmailPlusPool = null,
       setState,
       setNodeStatus,
       skipAutoRunCountdown,
@@ -1703,6 +1705,46 @@
         case 'TEST_HOTMAIL_ACCOUNT': {
           const result = await testHotmailAccountMailAccess(String(message.payload?.accountId || ''));
           return { ok: true, ...result };
+        }
+
+        case 'UPSERT_OUTLOOK_EMAIL_PLUS_CONFIG': {
+          const payload = message.payload || {};
+          const normalized = {
+            serverUrl: String(payload.serverUrl || '').trim(),
+            apiKey: String(payload.apiKey || '').trim(),
+            defaultProjectKey: String(payload.defaultProjectKey || '').trim(),
+            callerId: String(payload.callerId || '').trim() || 'GuJumpgate',
+          };
+          await setPersistentSettings({ outlookEmailPlusConfig: normalized });
+          await setState({ outlookEmailPlusConfig: normalized });
+          broadcastDataUpdate({ outlookEmailPlusConfig: normalized });
+          await addLog('outlookEmailPlus 配置已保存。', 'ok');
+          return { ok: true, config: normalized };
+        }
+
+        case 'TEST_OUTLOOK_EMAIL_PLUS_CONFIG': {
+          if (!outlookEmailPlusPool || typeof outlookEmailPlusPool.getHealth !== 'function') {
+            throw new Error('outlookEmailPlus 模块未加载。');
+          }
+          const payload = message.payload || {};
+          const config = {
+            serverUrl: String(payload.serverUrl || '').trim(),
+            apiKey: String(payload.apiKey || '').trim(),
+            defaultProjectKey: String(payload.defaultProjectKey || '').trim(),
+            callerId: String(payload.callerId || 'GuJumpgate').trim(),
+          };
+          const health = await outlookEmailPlusPool.getHealth(config);
+          await addLog(`outlookEmailPlus 服务端连通性 OK：${JSON.stringify(health || {})}`, 'ok');
+          return { ok: true, health };
+        }
+
+        case 'RESET_OUTLOOK_EMAIL_PLUS_POOL': {
+          if (!outlookEmailPlusProvider || typeof outlookEmailPlusProvider.resetPool !== 'function') {
+            throw new Error('outlookEmailPlus 模块未加载。');
+          }
+          await outlookEmailPlusProvider.resetPool();
+          await addLog('outlookEmailPlus 本地池状态已清空。', 'warn');
+          return { ok: true };
         }
 
         case 'UPSERT_MAIL2925_ACCOUNT': {

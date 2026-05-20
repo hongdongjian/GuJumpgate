@@ -520,6 +520,7 @@
         <div class="data-inline">
           <select id="select-mail-provider" class="data-select">
             <option value="hotmail-api">Outlook/Hotmail 账号池</option>
+            <option value="outlook-email-plus">outlookEmailPlus</option>
             <option value="cloudflare-temp-email">Cloudflare Temp Email（推荐）</option>
           </select>
           <button id="btn-mail-login" class="btn btn-outline btn-sm data-inline-btn" type="button" disabled>登录</button>
@@ -867,6 +868,37 @@
       <div class="data-row" id="row-cloud-mail-domain" style="display:none;">
         <span class="data-label">域名</span>
         <input type="text" id="input-cloud-mail-domain" class="data-input" placeholder="例如 mail.example.com" />
+      </div>
+    </div>
+    <div id="outlook-email-plus-section" class="data-card hotmail-card" style="display:none;">
+      <div class="section-mini-header">
+        <div class="section-mini-copy">
+          <span class="section-label">outlookEmailPlus 服务</span>
+          <span class="section-sub">外部 Outlook/Hotmail 邮箱池，使用 + 别名连续注册。</span>
+        </div>
+      </div>
+      <div class="data-row" id="row-outlook-email-plus-server-url">
+        <span class="data-label">服务端地址</span>
+        <input type="text" id="input-outlook-email-plus-server-url" class="data-input mono"
+          placeholder="例如 https://mail.example.com:20443" />
+      </div>
+      <div class="data-row" id="row-outlook-email-plus-api-key">
+        <span class="data-label">API Key</span>
+        <input type="password" id="input-outlook-email-plus-api-key" class="data-input mono"
+          placeholder="X-API-Key" autocomplete="off" />
+      </div>
+      <div class="data-row" id="row-outlook-email-plus-project-key">
+        <span class="data-label">默认项目 Key</span>
+        <input type="text" id="input-outlook-email-plus-project-key" class="data-input mono"
+          placeholder="例如 gpt" />
+      </div>
+      <div class="data-row">
+        <span class="data-label">操作</span>
+        <div class="data-inline">
+          <button id="btn-save-outlook-email-plus" class="btn btn-outline btn-sm" type="button">保存</button>
+          <button id="btn-test-outlook-email-plus" class="btn btn-ghost btn-sm" type="button">连通性测试</button>
+          <button id="btn-reset-outlook-email-plus-pool" class="btn btn-ghost btn-sm" type="button">清空本地池</button>
+        </div>
       </div>
     </div>
     <div id="hotmail-section" class="data-card hotmail-card" style="display:none;">

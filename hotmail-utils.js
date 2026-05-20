@@ -425,6 +425,15 @@
     return cleanedTag ? `${parts.local}+${cleanedTag}@${parts.domain}` : '';
   }
 
+  function buildOutlookPayPalAliasEmail(baseEmail = '', index = 1) {
+    const parts = parseEmailAddressParts(baseEmail);
+    if (!parts) {
+      return '';
+    }
+    const numericIndex = Math.max(1, Math.floor(Number(index) || 1));
+    return `${parts.local}+PayPal${numericIndex}@${parts.domain}`;
+  }
+
   function normalizeHotmailAliasUsage(value = {}) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return {};
@@ -604,6 +613,7 @@
     isAuthorizedHotmailAccount,
     isHotmailAliasCapacityExhausted,
     buildOutlookPlusAliasEmail,
+    buildOutlookPayPalAliasEmail,
     findSubscriptionMessageForAlias,
     normalizeHotmailAliasUsage,
     normalizeHotmailServiceMode,

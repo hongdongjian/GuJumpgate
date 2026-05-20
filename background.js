@@ -63,6 +63,8 @@ importScripts(
   'background/cloudmail-provider.js',
   'icloud-utils.js',
   'mail-provider-utils.js',
+  'background/outlook-email-plus-pool.js',
+  'background/outlook-email-plus-provider.js',
   'content/activation-utils.js'
 );
 
@@ -408,6 +410,7 @@ const ICLOUD_PROVIDER = 'icloud';
 const GMAIL_PROVIDER = 'gmail';
 const GMAIL_ALIAS_GENERATOR = 'gmail-alias';
 const HOTMAIL_PROVIDER = 'hotmail-api';
+const OUTLOOK_EMAIL_PLUS_PROVIDER = 'outlook-email-plus';
 const LUCKMAIL_PROVIDER = 'luckmail-api';
 const CLOUDFLARE_TEMP_EMAIL_PROVIDER = 'cloudflare-temp-email';
 const CLOUDFLARE_TEMP_EMAIL_GENERATOR = 'cloudflare-temp-email';
@@ -1008,6 +1011,9 @@ const PERSISTED_SETTING_DEFAULTS = {
   hotmailServiceMode: HOTMAIL_SERVICE_MODE_LOCAL,
   hotmailRemoteBaseUrl: DEFAULT_HOTMAIL_REMOTE_BASE_URL,
   hotmailLocalBaseUrl: DEFAULT_HOTMAIL_LOCAL_BASE_URL,
+  outlookEmailPlusConfig: { serverUrl: '', apiKey: '', defaultProjectKey: '' },
+  outlookEmailPlusAccount: null,
+  outlookEmailPlusAliasUsage: {},
   luckmailApiKey: '',
   luckmailBaseUrl: DEFAULT_LUCKMAIL_BASE_URL,
   luckmailEmailType: DEFAULT_LUCKMAIL_EMAIL_TYPE,
@@ -2424,6 +2430,32 @@ async function markCurrentRegistrationAccountUsed(state = {}, options = {}) {
       await addLog(`${reasonPrefix}：Hotmail 账号已标记为已用。`, options.level || 'warn');
     }
     updated = true;
+  }
+
+  if (
+    String(latestState.mailProvider || '').trim().toLowerCase() === OUTLOOK_EMAIL_PLUS_PROVIDER
+    && outlookEmailPlusProvider
+  ) {
+    const currentEmail = String(latestState.email || '').trim();
+    if (currentEmail) {
+      try {
+        await outlookEmailPlusProvider.markAliasUsed(currentEmail, 'flow_completed');
+        await addLog(`${reasonPrefix}：outlookEmailPlus 别名 ${currentEmail} 已标记为已用。`, options.level || 'warn');
+      } catch (error) {
+        await addLog(`${reasonPrefix}：outlookEmailPlus 标记别名失败：${error?.message || error}`, 'warn');
+      }
+      const refreshedState = await getState();
+      const currentAccount = refreshedState.outlookEmailPlusAccount;
+      if (currentAccount && outlookEmailPlusProvider.isAliasCapacityExhausted(refreshedState, currentAccount)) {
+        try {
+          await outlookEmailPlusProvider.finalizeCurrentAccount('success', '所有别名已用完');
+          await addLog(`${reasonPrefix}：outlookEmailPlus 基邮箱别名已用完，已提交 claim-complete。`, options.level || 'warn');
+        } catch (error) {
+          await addLog(`${reasonPrefix}：outlookEmailPlus 提交 claim-complete 失败：${error?.message || error}`, 'warn');
+        }
+      }
+      updated = true;
+    }
   }
 
   if (isLuckmailProvider(latestState)) {
@@ -8804,6 +8836,20 @@ const navigationUtils = self.MultiPageBackgroundNavigationUtils?.createNavigatio
   sourceRegistry,
 });
 
+const outlookEmailPlusProvider = self.OutlookEmailPlusProvider?.createProvider?.({
+  getState,
+  setState,
+  setPersistentSettings,
+  broadcastDataUpdate,
+  addLog,
+  setEmailState,
+  pool: self.OutlookEmailPlusPool,
+  buildOutlookPlusAliasEmail,
+  buildOutlookPayPalAliasEmail,
+  normalizeOutlookAliasMaxPerAccount,
+  normalizeHotmailAliasUsage,
+}) || null;
+
 const loggingStatus = self.MultiPageBackgroundLoggingStatus?.createLoggingStatus({
   chrome,
   DEFAULT_STATE,
@@ -12817,6 +12863,9 @@ const signupFlowHelpers = self.MultiPageSignupFlowHelpers?.createSignupFlowHelpe
   ensureHotmailAccountForFlow,
   ensureMail2925AccountForFlow,
   ensureLuckmailPurchaseForFlow,
+  ensureOutlookEmailPlusEmailForFlow: outlookEmailPlusProvider
+    ? (options) => outlookEmailPlusProvider.ensureEmail(options || {})
+    : null,
   fetchGeneratedEmail,
   getTabId,
   isGeneratedAliasProvider,
@@ -12832,6 +12881,7 @@ const signupFlowHelpers = self.MultiPageSignupFlowHelpers?.createSignupFlowHelpe
   },
   isRetryableContentScriptTransportError,
   isHotmailProvider,
+  isOutlookEmailPlusProvider: (state) => String(state?.mailProvider || '').trim().toLowerCase() === OUTLOOK_EMAIL_PLUS_PROVIDER,
   isLuckmailProvider,
   isSignupPasswordPageUrl,
   isTabAlive,
@@ -12875,6 +12925,7 @@ const verificationFlowHelpers = self.MultiPageBackgroundVerificationFlow?.create
   getState,
   getTabId,
   HOTMAIL_PROVIDER,
+  OUTLOOK_EMAIL_PLUS_PROVIDER,
   isMail2925LimitReachedError,
   isRetryableContentScriptTransportError,
   isStopError,
@@ -12884,6 +12935,9 @@ const verificationFlowHelpers = self.MultiPageBackgroundVerificationFlow?.create
   pollCloudflareTempEmailVerificationCode,
   pollCloudMailVerificationCode,
   pollHotmailVerificationCode,
+  pollOutlookEmailPlusVerificationCode: outlookEmailPlusProvider
+    ? (step, state, payload) => outlookEmailPlusProvider.pollVerificationCode(step, state, payload)
+    : null,
   pollLuckmailVerificationCode,
   sendToContentScript,
   sendToContentScriptResilient,
@@ -13010,6 +13064,7 @@ const step4Executor = self.MultiPageBackgroundStep4?.createStep4Executor({
   getMailConfig,
   getTabId,
   HOTMAIL_PROVIDER,
+  OUTLOOK_EMAIL_PLUS_PROVIDER,
   isTabAlive,
   LUCKMAIL_PROVIDER,
   CLOUDFLARE_TEMP_EMAIL_PROVIDER,
@@ -13083,6 +13138,7 @@ const step8Executor = self.MultiPageBackgroundStep8?.createStep8Executor({
   getState,
   getTabId,
   HOTMAIL_PROVIDER,
+  OUTLOOK_EMAIL_PLUS_PROVIDER,
   isTabAlive,
   isVerificationMailPollingError,
   LUCKMAIL_PROVIDER,
@@ -13410,6 +13466,8 @@ const messageRouter = self.MultiPageBackgroundMessageRouter?.createMessageRouter
   setLuckmailPurchasePreservedState,
   setLuckmailPurchaseUsedState,
   setPersistentSettings,
+  outlookEmailPlusProvider,
+  outlookEmailPlusPool: self.OutlookEmailPlusPool || null,
   setState,
   setNodeStatus,
   skipAutoRunCountdown,

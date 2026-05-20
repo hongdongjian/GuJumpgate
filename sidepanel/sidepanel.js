@@ -307,6 +307,13 @@ const inputCloudMailAdminPassword = document.getElementById('input-cloud-mail-ad
 const inputCloudMailReceiveMailbox = document.getElementById('input-cloud-mail-receive-mailbox');
 const inputCloudMailDomain = document.getElementById('input-cloud-mail-domain');
 const hotmailSection = document.getElementById('hotmail-section');
+const outlookEmailPlusSection = document.getElementById('outlook-email-plus-section');
+const inputOutlookEmailPlusServerUrl = document.getElementById('input-outlook-email-plus-server-url');
+const inputOutlookEmailPlusApiKey = document.getElementById('input-outlook-email-plus-api-key');
+const inputOutlookEmailPlusProjectKey = document.getElementById('input-outlook-email-plus-project-key');
+const btnSaveOutlookEmailPlus = document.getElementById('btn-save-outlook-email-plus');
+const btnTestOutlookEmailPlus = document.getElementById('btn-test-outlook-email-plus');
+const btnResetOutlookEmailPlusPool = document.getElementById('btn-reset-outlook-email-plus-pool');
 const mail2925Section = document.getElementById('mail2925-section');
 const luckmailSection = document.getElementById('luckmail-section');
 const icloudSection = document.getElementById('icloud-section');
@@ -2882,9 +2889,13 @@ function normalizeHotmailAliasEnabledValue(value) {
 
 function normalizeSupportedMailProvider(value = '') {
   const normalized = String(value || '').trim().toLowerCase();
-  return normalized === CLOUDFLARE_TEMP_EMAIL_PROVIDER
-    ? CLOUDFLARE_TEMP_EMAIL_PROVIDER
-    : HOTMAIL_PROVIDER;
+  if (normalized === CLOUDFLARE_TEMP_EMAIL_PROVIDER) {
+    return CLOUDFLARE_TEMP_EMAIL_PROVIDER;
+  }
+  if (normalized === 'outlook-email-plus') {
+    return 'outlook-email-plus';
+  }
+  return HOTMAIL_PROVIDER;
 }
 
 function normalizeVerificationResendCount(value, fallback) {
@@ -9737,6 +9748,15 @@ function applySettingsState(state) {
   setHotmailServiceMode(state?.hotmailServiceMode);
   inputHotmailRemoteBaseUrl.value = state?.hotmailRemoteBaseUrl || '';
   inputHotmailLocalBaseUrl.value = state?.hotmailLocalBaseUrl || '';
+  if (inputOutlookEmailPlusServerUrl) {
+    inputOutlookEmailPlusServerUrl.value = state?.outlookEmailPlusConfig?.serverUrl || '';
+  }
+  if (inputOutlookEmailPlusApiKey) {
+    inputOutlookEmailPlusApiKey.value = state?.outlookEmailPlusConfig?.apiKey || '';
+  }
+  if (inputOutlookEmailPlusProjectKey) {
+    inputOutlookEmailPlusProjectKey.value = state?.outlookEmailPlusConfig?.defaultProjectKey || '';
+  }
   if (typeof inputHotmailAliasEnabled !== 'undefined' && inputHotmailAliasEnabled) {
     inputHotmailAliasEnabled.checked = normalizeHotmailAliasEnabledValue(state?.hotmailAliasEnabled);
   }
@@ -10990,6 +11010,7 @@ function updateMailProviderUI() {
   const useMail2925AccountPool = useMail2925 && Boolean(inputMail2925UseAccountPool?.checked);
   const mail2925Mode = getSelectedMail2925Mode();
   const useHotmail = selectMailProvider.value === 'hotmail-api';
+  const useOutlookEmailPlus = selectMailProvider.value === 'outlook-email-plus';
   const useLuckmail = canShowLuckmail && isLuckmailProvider();
   const useCustomEmail = isCustomMailProvider();
   const useCloudflareTempEmailProvider = selectMailProvider.value === 'cloudflare-temp-email';
@@ -10999,7 +11020,7 @@ function updateMailProviderUI() {
   const customEmailPoolGenerator = typeof CUSTOM_EMAIL_POOL_GENERATOR === 'string'
     ? CUSTOM_EMAIL_POOL_GENERATOR
     : 'custom-pool';
-  const allowedEmailGenerators = useHotmail || useLuckmail || useCustomEmail
+  const allowedEmailGenerators = useHotmail || useOutlookEmailPlus || useLuckmail || useCustomEmail
     ? new Set()
     : (useCloudflareTempEmailProvider
       ? new Set(['cloudflare-temp-email'])
@@ -11147,6 +11168,9 @@ function updateMailProviderUI() {
   if (hotmailSection) {
     hotmailSection.style.display = useHotmail ? '' : 'none';
   }
+  if (outlookEmailPlusSection) {
+    outlookEmailPlusSection.style.display = useOutlookEmailPlus ? '' : 'none';
+  }
   if (mail2925Section) {
     mail2925Section.style.display = useMail2925AccountPool ? '' : 'none';
   }
@@ -11165,7 +11189,7 @@ function updateMailProviderUI() {
   }
   inputEmailPrefix.style.display = '';
   inputEmailPrefix.readOnly = false;
-  selectEmailGenerator.disabled = useHotmail || useLuckmail || useCustomEmail || useCloudflareTempEmailProvider || (useGeneratedAlias && !useGmail);
+  selectEmailGenerator.disabled = useHotmail || useOutlookEmailPlus || useLuckmail || useCustomEmail || useCloudflareTempEmailProvider || (useGeneratedAlias && !useGmail);
   if (useGmail) {
     labelEmailPrefix.textContent = 'Gmail 原邮箱';
     inputEmailPrefix.placeholder = '例如 yourname@gmail.com';
@@ -13129,6 +13153,82 @@ btnDismissContributionUpdateHint?.addEventListener('click', (event) => {
 
 configMenu?.addEventListener('click', (event) => {
   event.stopPropagation();
+});
+
+function collectOutlookEmailPlusConfigFromInputs() {
+  return {
+    serverUrl: (inputOutlookEmailPlusServerUrl?.value || '').trim(),
+    apiKey: (inputOutlookEmailPlusApiKey?.value || '').trim(),
+    defaultProjectKey: (inputOutlookEmailPlusProjectKey?.value || '').trim(),
+    callerId: 'GuJumpgate',
+  };
+}
+
+btnSaveOutlookEmailPlus?.addEventListener('click', async () => {
+  const payload = collectOutlookEmailPlusConfigFromInputs();
+  if (!payload.serverUrl) {
+    showToast('请填写 outlookEmailPlus 服务端地址。', 'warn');
+    return;
+  }
+  if (!payload.apiKey) {
+    showToast('请填写 outlookEmailPlus API Key。', 'warn');
+    return;
+  }
+  btnSaveOutlookEmailPlus.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'UPSERT_OUTLOOK_EMAIL_PLUS_CONFIG',
+      source: 'sidepanel',
+      payload,
+    });
+    if (response?.error) throw new Error(response.error);
+    showToast('outlookEmailPlus 配置已保存。', 'success', 1800);
+  } catch (err) {
+    showToast(`保存 outlookEmailPlus 配置失败：${err.message}`, 'error');
+  } finally {
+    btnSaveOutlookEmailPlus.disabled = false;
+  }
+});
+
+btnTestOutlookEmailPlus?.addEventListener('click', async () => {
+  const payload = collectOutlookEmailPlusConfigFromInputs();
+  if (!payload.serverUrl || !payload.apiKey) {
+    showToast('请先填写服务端地址与 API Key。', 'warn');
+    return;
+  }
+  btnTestOutlookEmailPlus.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'TEST_OUTLOOK_EMAIL_PLUS_CONFIG',
+      source: 'sidepanel',
+      payload,
+    });
+    if (response?.error) throw new Error(response.error);
+    showToast('outlookEmailPlus 服务端连通性 OK。', 'success', 2000);
+  } catch (err) {
+    showToast(`outlookEmailPlus 测试失败：${err.message}`, 'error');
+  } finally {
+    btnTestOutlookEmailPlus.disabled = false;
+  }
+});
+
+btnResetOutlookEmailPlusPool?.addEventListener('click', async () => {
+  if (!confirm('清空 outlookEmailPlus 本地占用的邮箱与别名记录？')) {
+    return;
+  }
+  btnResetOutlookEmailPlusPool.disabled = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'RESET_OUTLOOK_EMAIL_PLUS_POOL',
+      source: 'sidepanel',
+    });
+    if (response?.error) throw new Error(response.error);
+    showToast('outlookEmailPlus 本地池已清空。', 'success', 1800);
+  } catch (err) {
+    showToast(`清空 outlookEmailPlus 池失败：${err.message}`, 'error');
+  } finally {
+    btnResetOutlookEmailPlusPool.disabled = false;
+  }
 });
 
 btnExportSettings?.addEventListener('click', async () => {

@@ -21,6 +21,7 @@
       getState,
       getTabId,
       HOTMAIL_PROVIDER,
+      OUTLOOK_EMAIL_PLUS_PROVIDER = 'outlook-email-plus',
       isMail2925LimitReachedError,
       isStopError,
       LUCKMAIL_PROVIDER,
@@ -29,6 +30,7 @@
       pollCloudflareTempEmailVerificationCode,
       pollCloudMailVerificationCode,
       pollHotmailVerificationCode,
+      pollOutlookEmailPlusVerificationCode = null,
       pollLuckmailVerificationCode,
       sendToContentScript,
       sendToContentScriptResilient,
@@ -959,6 +961,13 @@
           ...cleanPollOverrides,
         }, cleanPollOverrides, `轮询${getVerificationCodeLabel(step)}验证码邮箱`);
         return pollHotmailVerificationCode(step, state, timedPoll.payload);
+      }
+      if (mail.provider === OUTLOOK_EMAIL_PLUS_PROVIDER && typeof pollOutlookEmailPlusVerificationCode === 'function') {
+        const timedPoll = await applyMailPollingTimeBudget(step, {
+          ...getVerificationPollPayload(step, state),
+          ...cleanPollOverrides,
+        }, cleanPollOverrides, `轮询${getVerificationCodeLabel(step)}验证码邮箱`);
+        return pollOutlookEmailPlusVerificationCode(step, state, timedPoll.payload);
       }
       if (mail.provider === LUCKMAIL_PROVIDER) {
         const timedPoll = await applyMailPollingTimeBudget(step, {
