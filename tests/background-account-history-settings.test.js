@@ -215,7 +215,9 @@ return {
   assert.equal(api.normalizePersistentSettingValue('phoneSignupReloginAfterBindEmailEnabled', 0), false);
   assert.equal(api.normalizePersistentSettingValue('mailProvider', 'cloudflare-temp-email'), 'cloudflare-temp-email');
   assert.equal(api.normalizePersistentSettingValue('mailProvider', 'hotmail-api'), 'hotmail-api');
-  assert.equal(api.normalizePersistentSettingValue('mailProvider', '163'), 'hotmail-api');
+  assert.equal(api.normalizePersistentSettingValue('mailProvider', '163'), '163');
+  assert.equal(api.normalizePersistentSettingValue('mailProvider', 'outlook-email-plus'), 'outlook-email-plus');
+  assert.equal(api.normalizePersistentSettingValue('mailProvider', '2925'), '2925');
   assert.equal(api.normalizePersistentSettingValue('hotmailAliasEnabled', 0), false);
   assert.equal(api.normalizePersistentSettingValue('hotmailAliasEnabled', 1), true);
   assert.equal(api.normalizePersistentSettingValue('plusPaymentMethod', 'gopay'), 'gopay');

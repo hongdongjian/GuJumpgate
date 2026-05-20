@@ -880,6 +880,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   panelMode: DEFAULT_PANEL_MODE,
   localCpaJsonPluginDir: '',
   localCpaJsonRelativeAuthDir: DEFAULT_LOCAL_CPA_JSON_RELATIVE_AUTH_DIR,
+  localSub2apiJsonSaveDir: '',
   vpsUrl: '',
   vpsPassword: '',
   localCpaStep9Mode: DEFAULT_LOCAL_CPA_STEP9_MODE,
@@ -2534,6 +2535,7 @@ function normalizeMailProvider(value = '') {
     case ICLOUD_PROVIDER:
     case GMAIL_PROVIDER:
     case HOTMAIL_PROVIDER:
+    case OUTLOOK_EMAIL_PLUS_PROVIDER:
     case LUCKMAIL_PROVIDER:
     case CLOUDFLARE_TEMP_EMAIL_PROVIDER:
     case CLOUD_MAIL_PROVIDER:
@@ -3101,12 +3103,7 @@ function normalizePersistentSettingValue(key, value) {
     case 'phoneCodePollMaxRounds':
       return normalizePhoneCodePollMaxRounds(value, DEFAULT_PHONE_CODE_POLL_ROUNDS);
     case 'mailProvider':
-      {
-        const normalizedMailProvider = normalizeMailProvider(value);
-        return normalizedMailProvider === CLOUDFLARE_TEMP_EMAIL_PROVIDER
-          ? CLOUDFLARE_TEMP_EMAIL_PROVIDER
-          : HOTMAIL_PROVIDER;
-      }
+      return normalizeMailProvider(value);
     case 'mail2925Mode':
       return normalizeMail2925Mode(value);
     case 'mail2925UseAccountPool':
@@ -3136,6 +3133,8 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeLocalCpaJsonPluginDir(value);
     case 'localCpaJsonRelativeAuthDir':
       return normalizeLocalCpaJsonRelativeAuthDir(value);
+    case 'localSub2apiJsonSaveDir':
+      return String(value || '').trim();
     case 'gmailBaseEmail':
     case 'mail2925BaseEmail':
     case 'currentMail2925AccountId':
