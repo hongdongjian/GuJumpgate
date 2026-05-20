@@ -4,9 +4,10 @@
   const DEFAULT_FLOW_ID = 'openai';
   const DEFAULT_PANEL_MODE = 'local-cpa-json';
   const LOCAL_CPA_JSON_NO_RT_PANEL_MODE = 'local-cpa-json-no-rt';
+  const LOCAL_SUB2API_JSON_PANEL_MODE = 'local-sub2api-json';
   const SIGNUP_METHOD_EMAIL = 'email';
   const SIGNUP_METHOD_PHONE = 'phone';
-  const VALID_PANEL_MODES = Object.freeze(['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'cpa', 'sub2api', 'codex2api']);
+  const VALID_PANEL_MODES = Object.freeze(['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, LOCAL_SUB2API_JSON_PANEL_MODE, 'cpa', 'sub2api', 'codex2api']);
 
   const DEFAULT_FLOW_CAPABILITIES = Object.freeze({
     supportsEmailSignup: true,
@@ -28,7 +29,7 @@
       supportsPhoneVerificationSettings: true,
       supportsPlusMode: true,
       supportsContributionMode: true,
-      supportsPlatformBinding: ['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, 'cpa', 'sub2api', 'codex2api'],
+      supportsPlatformBinding: ['local-cpa-json', LOCAL_CPA_JSON_NO_RT_PANEL_MODE, LOCAL_SUB2API_JSON_PANEL_MODE, 'cpa', 'sub2api', 'codex2api'],
       supportsLuckmail: true,
       supportsOauthTimeoutBudget: true,
       stepDefinitionMode: 'openai-dynamic',
@@ -58,6 +59,10 @@
       requiresPhoneSignupWarning: false,
     }),
     [LOCAL_CPA_JSON_NO_RT_PANEL_MODE]: Object.freeze({
+      supportsPhoneSignup: true,
+      requiresPhoneSignupWarning: false,
+    }),
+    [LOCAL_SUB2API_JSON_PANEL_MODE]: Object.freeze({
       supportsPhoneSignup: true,
       requiresPhoneSignupWarning: false,
     }),
@@ -119,6 +124,9 @@
     }
     if (normalized === LOCAL_CPA_JSON_NO_RT_PANEL_MODE) {
       return '本地CPA JSON 无RT';
+    }
+    if (normalized === LOCAL_SUB2API_JSON_PANEL_MODE) {
+      return '本地 SUB2API JSON';
     }
     if (normalized === 'sub2api') {
       return 'SUB2API';

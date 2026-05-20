@@ -45,6 +45,22 @@
     throw new Error('session-to-json 转换模块未加载，无法生成本地 auth json。');
   }
 
+  function sanitizeFileNameSegment(value = '') {
+    return String(value || '')
+      .trim()
+      .replace(/[\\/:*?"<>|\s]+/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
+  function buildSub2apiFileName(account = {}) {
+    const email = sanitizeFileNameSegment(account?.credentials?.email || account?.extra?.email || account?.name);
+    if (email) {
+      return `sub2api-${email}.json`;
+    }
+    return 'sub2api-account.json';
+  }
+
   function bytesToBase64Url(bytes) {
     if (!(bytes instanceof Uint8Array)) {
       throw new Error('bytesToBase64Url 需要 Uint8Array 输入。');
@@ -413,6 +429,65 @@
       };
     }
 
+    async function buildSub2apiJsonArtifact(options = {}) {
+      const accessToken = normalizeString(options.accessToken || options.access_token);
+      if (!accessToken) {
+        throw new Error('生成本地 SUB2API JSON 失败：缺少 accessToken。');
+      }
+      if (typeof sessionConverter.convertSessionToSub2apiAccount !== 'function'
+        || typeof sessionConverter.buildSub2apiDocument !== 'function') {
+        throw new Error('session-to-json 转换模块缺少 SUB2API 支持，无法生成本地 SUB2API JSON。');
+      }
+
+      const sourceSession = options.session && typeof options.session === 'object' && !Array.isArray(options.session)
+        ? options.session
+        : {};
+      const sessionRecord = {
+        ...sourceSession,
+        type: 'codex',
+        accessToken,
+        refreshToken: normalizeString(options.refreshToken || options.refresh_token || sourceSession.refreshToken || sourceSession.refresh_token),
+        idToken: normalizeString(options.idToken || options.id_token || sourceSession.idToken || sourceSession.id_token),
+        expiresAt: options.expiresAt || options.expires_at || sourceSession.expiresAt || sourceSession.expires,
+        email: options.email || sourceSession.email || sourceSession.user?.email,
+        account_id: options.accountId || options.account_id || sourceSession.account?.id,
+        user_id: options.userId || options.user_id || sourceSession.user?.id,
+        plan_type: options.planType || options.plan_type || sourceSession.account?.planType || sourceSession.account?.plan_type,
+      };
+
+      const converted = sessionConverter.convertSessionToSub2apiAccount(sessionRecord, {
+        now: options.now || new Date(),
+        sourceName: normalizeString(options.sourceName) || 'GuJumpgate Local SUB2API JSON',
+        source: 'gujumpgate-local',
+        priority: options.priority,
+        concurrency: options.concurrency,
+      });
+      const document = sessionConverter.buildSub2apiDocument([converted.output], {
+        now: options.now || new Date(),
+      });
+
+      const saveDir = normalizeString(options.saveDir);
+      if (!saveDir) {
+        throw new Error('生成本地 SUB2API JSON 失败：缺少保存目录。');
+      }
+
+      const fileName = buildSub2apiFileName(converted.output);
+      const directoryPath = saveDir.replace(/[\\/]+$/g, '');
+      const filePath = joinPath(directoryPath, fileName);
+      const jsonText = `${JSON.stringify(document, null, 2)}\n`;
+
+      return {
+        provider: 'sub2api',
+        fileName,
+        directoryPath,
+        filePath,
+        document,
+        account: converted.output,
+        jsonText,
+        warnings: Array.isArray(converted.warnings) ? converted.warnings.slice() : [],
+      };
+    }
+
     async function exchangeCallbackToAuthArtifact(options = {}) {
       const callback = parseOAuthCallback(options.callbackUrl, options.expectedState);
       const tokenBundle = await exchangeCodeForTokens({
@@ -438,6 +513,7 @@
       REDIRECT_URI,
       DEFAULT_RELATIVE_AUTH_DIR,
       buildAuthJsonArtifact,
+      buildSub2apiJsonArtifact,
       createAuthorizationRequest,
       exchangeCallbackToAuthArtifact,
       exchangeCodeForTokens,

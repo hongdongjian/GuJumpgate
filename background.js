@@ -2483,6 +2483,9 @@ function normalizePanelMode(value = '') {
   if (normalized === 'local-cpa-json-no-rt') {
     return 'local-cpa-json-no-rt';
   }
+  if (normalized === 'local-sub2api-json') {
+    return 'local-sub2api-json';
+  }
   if (normalized === 'sub2api') {
     return 'sub2api';
   }
@@ -8266,6 +8269,9 @@ function getPanelMode(state = {}) {
   if (state.panelMode === 'local-cpa-json-no-rt') {
     return 'local-cpa-json-no-rt';
   }
+  if (state.panelMode === 'local-sub2api-json') {
+    return 'local-sub2api-json';
+  }
   if (state.panelMode === 'sub2api') {
     return 'sub2api';
   }
@@ -8285,6 +8291,9 @@ function getPanelModeLabel(modeOrState) {
   }
   if (mode === 'local-cpa-json-no-rt') {
     return '本地CPA JSON 无RT';
+  }
+  if (mode === 'local-sub2api-json') {
+    return '本地 SUB2API JSON';
   }
   if (mode === 'sub2api') {
     return 'SUB2API';
@@ -13256,7 +13265,11 @@ const stepExecutorsByKey = {
   'fetch-signup-code': (state) => step4Executor.executeStep4(state),
   'fill-profile': (state) => step5Executor.executeStep5(state),
   'wait-registration-success': (state) => step6Executor.executeStep6(state),
-  'local-cpa-json-export': (state) => step6Executor.executeLocalCpaJsonNoRtExport(state),
+  'local-cpa-json-export': (state) => (
+    String(state?.panelMode || '').trim().toLowerCase() === 'local-sub2api-json'
+      ? step6Executor.executeLocalSub2apiJsonExport(state)
+      : step6Executor.executeLocalCpaJsonNoRtExport(state)
+  ),
   'plus-checkout-create': (state) => plusCheckoutCreateExecutor.executePlusCheckoutCreate(state),
   'plus-checkout-billing': (state) => plusCheckoutBillingExecutor.executePlusCheckoutBilling(state),
   'gopay-subscription-confirm': (state) => goPayManualConfirmExecutor.executeGoPayManualConfirm(state),
@@ -13471,7 +13484,8 @@ function getStepRegistryForState(state = {}) {
   if (activeFlowId !== DEFAULT_ACTIVE_FLOW_ID) {
     throw new Error(`当前尚未注册 flow=${activeFlowId} 的步骤执行器。`);
   }
-  if (getPanelMode(state) === 'local-cpa-json-no-rt') {
+  const panelModeForRegistry = getPanelMode(state);
+  if (panelModeForRegistry === 'local-cpa-json-no-rt' || panelModeForRegistry === 'local-sub2api-json') {
     return localCpaJsonNoRtStepRegistry;
   }
   const signupMethod = getSignupMethodForStepDefinitions(state);

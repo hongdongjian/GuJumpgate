@@ -286,7 +286,180 @@
     return { output, warnings };
   }
 
+  function stripUnavailable(value) {
+    if (Array.isArray(value)) {
+      const list = value
+        .map((item) => stripUnavailable(item))
+        .filter((item) => item !== undefined);
+      return list.length ? list : undefined;
+    }
+    if (isPlainObject(value)) {
+      const entries = Object.entries(value)
+        .map(([key, raw]) => [key, stripUnavailable(raw)])
+        .filter(([, raw]) => raw !== undefined);
+      return entries.length ? Object.fromEntries(entries) : undefined;
+    }
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value === 'string' && value.trim() === '') {
+      return undefined;
+    }
+    return value;
+  }
+
+  function toEmailKey(email) {
+    return typeof email === 'string' && email.trim() ? email.trim().toLowerCase() : undefined;
+  }
+
+  function convertSessionToSub2apiAccount(record, options = {}) {
+    if (!isPlainObject(record)) {
+      throw new Error('session 不是 JSON 对象');
+    }
+
+    const accessToken = firstNonEmpty(
+      record.accessToken,
+      record.access_token,
+      record.token?.accessToken,
+      record.token?.access_token,
+      record.credentials?.accessToken,
+      record.credentials?.access_token
+    );
+    if (!accessToken) {
+      throw new Error('缺少 accessToken');
+    }
+
+    const refreshToken = firstNonEmpty(
+      record.refreshToken,
+      record.refresh_token,
+      record.token?.refreshToken,
+      record.token?.refresh_token,
+      record.credentials?.refresh_token
+    );
+    const inputIdToken = firstNonEmpty(
+      record.idToken,
+      record.id_token,
+      record.token?.idToken,
+      record.token?.id_token,
+      record.credentials?.id_token
+    );
+
+    const payload = parseJwtPayload(accessToken);
+    const idPayload = parseJwtPayload(inputIdToken);
+    const auth = getOpenAIAuthSection(payload);
+    const idAuth = getOpenAIAuthSection(idPayload);
+    const profile = getOpenAIProfileSection(payload);
+
+    const expiresAt = firstNonEmpty(
+      payload ? timestampFromUnixSeconds(payload.exp) : undefined,
+      normalizeTimestamp(record.expires),
+      normalizeTimestamp(record.expiresAt),
+      normalizeTimestamp(record.expired),
+      normalizeTimestamp(record.expires_at)
+    );
+
+    const expiresInRaw = Number(record.expires_in ?? record.expiresIn);
+    let expiresIn = Number.isFinite(expiresInRaw) && expiresInRaw > 0 ? Math.trunc(expiresInRaw) : undefined;
+    if (!expiresIn && expiresAt) {
+      const seconds = Math.trunc((Date.parse(expiresAt) - Date.now()) / 1000);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        expiresIn = seconds;
+      }
+    }
+
+    const email = firstNonEmpty(
+      record.user?.email,
+      record.email,
+      record.credentials?.email,
+      record.providerSpecificData?.email,
+      profile.email,
+      idPayload?.email,
+      payload?.email
+    );
+    const accountId = firstNonEmpty(
+      record.account?.id,
+      record.account_id,
+      record.chatgptAccountId,
+      record.providerSpecificData?.chatgptAccountId,
+      record.providerSpecificData?.chatgpt_account_id,
+      record.credentials?.chatgpt_account_id,
+      auth.chatgpt_account_id,
+      idAuth.chatgpt_account_id,
+      record.provider === 'codex' ? record.id : undefined
+    );
+    const userId = firstNonEmpty(
+      record.user?.id,
+      record.user_id,
+      record.chatgptUserId,
+      record.providerSpecificData?.chatgptUserId,
+      record.providerSpecificData?.chatgpt_user_id,
+      auth.chatgpt_user_id,
+      auth.user_id,
+      idAuth.chatgpt_user_id,
+      idAuth.user_id
+    );
+    const planType = firstNonEmpty(
+      record.account?.planType,
+      record.account?.plan_type,
+      record.planType,
+      record.plan_type,
+      record.providerSpecificData?.chatgptPlanType,
+      record.providerSpecificData?.chatgpt_plan_type,
+      record.credentials?.plan_type,
+      auth.chatgpt_plan_type,
+      idAuth.chatgpt_plan_type
+    );
+    const sourceName = firstNonEmpty(record.sourceName, options.sourceName);
+    const recordName = firstNonEmpty(record.name, record.user?.name);
+    const exportedAt = normalizeTimestamp(options.now || new Date());
+
+    const account = stripUnavailable({
+      name: firstNonEmpty(recordName, email, sourceName, 'ChatGPT Account'),
+      platform: 'openai',
+      type: 'oauth',
+      concurrency: Number.isFinite(Number(options.concurrency)) ? Number(options.concurrency) : 10,
+      priority: Number.isFinite(Number(options.priority)) ? Number(options.priority) : 1,
+      credentials: {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        id_token: inputIdToken,
+        chatgpt_account_id: accountId,
+        chatgpt_user_id: userId,
+        email,
+        expires_at: expiresAt,
+        expires_in: expiresIn,
+        plan_type: planType,
+      },
+      extra: {
+        email,
+        email_key: toEmailKey(email),
+        name: recordName,
+        auth_provider: firstNonEmpty(record.authProvider, record.auth_provider),
+        source: firstNonEmpty(options.source, record.source),
+        last_refresh: exportedAt,
+      },
+    });
+
+    const warnings = [];
+    if (!refreshToken) {
+      warnings.push('Missing refresh_token; SUB2API 账号无法自动刷新 access_token。');
+    }
+
+    return { output: account || {}, warnings };
+  }
+
+  function buildSub2apiDocument(accounts, options = {}) {
+    const list = Array.isArray(accounts) ? accounts : (accounts ? [accounts] : []);
+    return {
+      exported_at: normalizeTimestamp(options.now || new Date()),
+      proxies: Array.isArray(options.proxies) ? options.proxies.slice() : [],
+      accounts: list.filter((item) => item && typeof item === 'object'),
+    };
+  }
+
   return {
     convertSessionJson,
+    convertSessionToSub2apiAccount,
+    buildSub2apiDocument,
   };
 });

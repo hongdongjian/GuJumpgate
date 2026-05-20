@@ -3,6 +3,7 @@
 })(typeof self !== 'undefined' ? self : globalThis, function createBackgroundStep6Module() {
   const DEFAULT_REGISTRATION_SUCCESS_WAIT_MS = 4000;
   const LOCAL_CPA_JSON_NO_RT_PANEL_MODE = 'local-cpa-json-no-rt';
+  const LOCAL_SUB2API_JSON_PANEL_MODE = 'local-sub2api-json';
   const LOCAL_CPA_JSON_EXPORT_NODE_ID = 'local-cpa-json-export';
   const CHATGPT_SESSION_EXPORT_URL = 'https://chatgpt.com/';
   const STEP6_COOKIE_CLEAR_DOMAINS = [
@@ -136,6 +137,10 @@
 
     function isLocalCpaJsonNoRtMode(state = {}) {
       return normalizeString(getPanelMode(state)) === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
+    }
+
+    function isLocalSub2apiJsonMode(state = {}) {
+      return normalizeString(getPanelMode(state)) === LOCAL_SUB2API_JSON_PANEL_MODE;
     }
 
     function getLocalCliProxyApi() {
@@ -307,6 +312,44 @@
       };
     }
 
+    async function exportLocalSub2apiJson(state = {}, options = {}) {
+      const visibleStep = Math.max(1, Math.floor(Number(options.visibleStep) || 7));
+      const helperBaseUrl = normalizeHotmailLocalBaseUrl(state.hotmailLocalBaseUrl);
+      const saveDir = normalizeString(state.localSub2apiJsonSaveDir);
+      if (!helperBaseUrl) {
+        throw new Error('尚未配置 Hotmail 本地助手地址，请先在侧边栏填写。');
+      }
+      if (!saveDir) {
+        throw new Error('尚未配置本地 SUB2API JSON 保存目录，请先在侧边栏填写。');
+      }
+
+      const sessionResult = await readChatGptSessionForExport(state, visibleStep);
+      const api = getLocalCliProxyApi();
+      const artifact = await api.buildSub2apiJsonArtifact({
+        saveDir,
+        session: sessionResult?.session,
+        accessToken: sessionResult?.accessToken,
+        email: sessionResult?.email || sessionResult?.session?.user?.email || state?.email,
+        expiresAt: sessionResult?.expiresAt || sessionResult?.session?.expires,
+        accountId: sessionResult?.session?.account?.id,
+        userId: sessionResult?.session?.user?.id,
+        planType: sessionResult?.session?.account?.planType,
+        sourceName: 'GuJumpgate Local SUB2API JSON',
+      });
+
+      for (const warning of Array.isArray(artifact.warnings) ? artifact.warnings : []) {
+        await addLog(`步骤 ${visibleStep}：${warning}`, 'warn');
+      }
+
+      const saved = await saveLocalCpaJsonArtifactViaHelper(helperBaseUrl, artifact);
+      const verifiedStatus = `本地 SUB2API JSON 已导出：${saved.filePath}`;
+      await addLog(`步骤 ${visibleStep}：${verifiedStatus}`, 'ok');
+      return {
+        verifiedStatus,
+        localSub2apiJsonFilePath: saved.filePath,
+      };
+    }
+
     async function clearCookiesIfEnabled(state = {}) {
       if (!state?.step6CookieCleanupEnabled) {
         return;
@@ -365,8 +408,19 @@
       await completeNodeFromBackground(LOCAL_CPA_JSON_EXPORT_NODE_ID, completionPayload);
     }
 
+    async function executeLocalSub2apiJsonExport(state = {}) {
+      if (!isLocalSub2apiJsonMode(state)) {
+        throw new Error('当前不是本地 SUB2API JSON 模式，不能执行 SUB2API JSON 导出节点。');
+      }
+      await addLog('步骤 7：Plus Checkout 已完成，等待 5 秒后导出本地 SUB2API JSON...', 'info');
+      await sleepWithStop(5000);
+      const completionPayload = await exportLocalSub2apiJson(state, { visibleStep: 7 });
+      await completeNodeFromBackground(LOCAL_CPA_JSON_EXPORT_NODE_ID, completionPayload);
+    }
+
     return {
       executeLocalCpaJsonNoRtExport,
+      executeLocalSub2apiJsonExport,
       executeStep6,
     };
   }

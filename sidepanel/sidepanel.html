@@ -121,6 +121,7 @@
         <select id="select-panel-mode" class="data-select">
           <option value="local-cpa-json" selected>本地CPA JSON 有RT</option>
           <option value="local-cpa-json-no-rt">本地CPA JSON 无RT</option>
+          <option value="local-sub2api-json">本地 SUB2API JSON</option>
           <option value="cpa">CPA 面板</option>
           <option value="sub2api">SUB2API</option>
           <option value="codex2api">Codex2API</option>
@@ -143,6 +144,11 @@
         <span class="data-label">认证目录</span>
         <input type="text" id="input-local-cpa-json-relative-auth-dir" class="data-input"
           placeholder=".cli-proxy-api" />
+      </div>
+      <div class="data-row" id="row-local-sub2api-json-save-dir" style="display:none;">
+        <span class="data-label">保存路径</span>
+        <input type="text" id="input-local-sub2api-json-save-dir" class="data-input"
+          placeholder="例如 C:\\your-output-folder 或 /Users/you/Downloads" />
       </div>
         <div id="contribution-mode-panel" class="contribution-mode-panel" hidden>
           <div class="contribution-mode-panel-header">

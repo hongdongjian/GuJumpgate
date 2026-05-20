@@ -7,6 +7,7 @@
   const PLUS_PAYMENT_METHOD_GPC_HELPER = 'gpc-helper';
   const PLUS_PAYMENT_STEP_KEY = 'paypal-approve';
   const LOCAL_CPA_JSON_NO_RT_PANEL_MODE = 'local-cpa-json-no-rt';
+  const LOCAL_SUB2API_JSON_PANEL_MODE = 'local-sub2api-json';
   const SIGNUP_METHOD_EMAIL = 'email';
   const SIGNUP_METHOD_PHONE = 'phone';
 
@@ -229,6 +230,12 @@
       return [
         ...PLUS_PAYPAL_HOSTED_CHECKOUT_PREFIX_STEP_DEFINITIONS,
         LOCAL_CPA_JSON_NO_RT_EXPORT_STEP_DEFINITION,
+      ];
+    }
+    if (panelMode === LOCAL_SUB2API_JSON_PANEL_MODE) {
+      return [
+        ...PLUS_PAYPAL_HOSTED_CHECKOUT_PREFIX_STEP_DEFINITIONS,
+        { ...LOCAL_CPA_JSON_NO_RT_EXPORT_STEP_DEFINITION, title: '导出本地 SUB2API JSON' },
       ];
     }
     if (!isPlusModeEnabled(options)) {

@@ -87,6 +87,8 @@ const rowLocalCpaJsonAdvancedToggle = document.getElementById('row-local-cpa-jso
 const btnToggleLocalCpaJsonAuthDir = document.getElementById('btn-toggle-local-cpa-json-auth-dir');
 const rowLocalCpaJsonRelativeAuthDir = document.getElementById('row-local-cpa-json-relative-auth-dir');
 const inputLocalCpaJsonRelativeAuthDir = document.getElementById('input-local-cpa-json-relative-auth-dir');
+const rowLocalSub2apiJsonSaveDir = document.getElementById('row-local-sub2api-json-save-dir');
+const inputLocalSub2apiJsonSaveDir = document.getElementById('input-local-sub2api-json-save-dir');
 const rowVpsUrl = document.getElementById('row-vps-url');
 const inputVpsUrl = document.getElementById('input-vps-url');
 const rowVpsPassword = document.getElementById('row-vps-password');
@@ -795,6 +797,7 @@ const HERO_SMS_COUNTRY_ISO_CODE_BY_NAME = (() => {
 })();
 const LOCAL_CPA_JSON_PANEL_MODE = 'local-cpa-json';
 const LOCAL_CPA_JSON_NO_RT_PANEL_MODE = 'local-cpa-json-no-rt';
+const LOCAL_SUB2API_JSON_PANEL_MODE = 'local-sub2api-json';
 const DEFAULT_PANEL_MODE = LOCAL_CPA_JSON_PANEL_MODE;
 const DEFAULT_LOCAL_CPA_JSON_RELATIVE_AUTH_DIR = '.cli-proxy-api';
 const DEFAULT_LOCAL_CPA_STEP9_MODE = 'submit';
@@ -3870,6 +3873,7 @@ function collectSettingsPayload() {
       const normalized = String(value || '').trim().toLowerCase();
       return normalized === 'local-cpa-json'
         || normalized === 'local-cpa-json-no-rt'
+        || normalized === 'local-sub2api-json'
         || normalized === 'sub2api'
         || normalized === 'codex2api'
         ? normalized
@@ -4007,6 +4011,9 @@ function collectSettingsPayload() {
     localCpaJsonRelativeAuthDir: typeof inputLocalCpaJsonRelativeAuthDir !== 'undefined' && inputLocalCpaJsonRelativeAuthDir
       ? localCpaJsonRelativeAuthDirNormalizer(inputLocalCpaJsonRelativeAuthDir.value)
       : (typeof DEFAULT_LOCAL_CPA_JSON_RELATIVE_AUTH_DIR === 'string' ? DEFAULT_LOCAL_CPA_JSON_RELATIVE_AUTH_DIR : '.cli-proxy-api'),
+    localSub2apiJsonSaveDir: typeof inputLocalSub2apiJsonSaveDir !== 'undefined' && inputLocalSub2apiJsonSaveDir
+      ? String(inputLocalSub2apiJsonSaveDir.value || '').trim()
+      : '',
     vpsUrl: inputVpsUrl.value.trim(),
     vpsPassword: inputVpsPassword.value,
     localCpaStep9Mode: getSelectedLocalCpaStep9Mode(),
@@ -7937,9 +7944,13 @@ function normalizePanelMode(value = '') {
   const localCpaJsonNoRtMode = typeof LOCAL_CPA_JSON_NO_RT_PANEL_MODE === 'string'
     ? LOCAL_CPA_JSON_NO_RT_PANEL_MODE
     : 'local-cpa-json-no-rt';
+  const localSub2apiJsonMode = typeof LOCAL_SUB2API_JSON_PANEL_MODE === 'string'
+    ? LOCAL_SUB2API_JSON_PANEL_MODE
+    : 'local-sub2api-json';
   if (
     normalized === localCpaJsonMode
     || normalized === localCpaJsonNoRtMode
+    || normalized === localSub2apiJsonMode
     || normalized === 'sub2api'
     || normalized === 'codex2api'
   ) {
@@ -9322,8 +9333,11 @@ function syncStepDefinitionsForMode(plusModeEnabled = false, plusPaymentMethodOr
   const noRtPanelMode = typeof LOCAL_CPA_JSON_NO_RT_PANEL_MODE === 'string'
     ? LOCAL_CPA_JSON_NO_RT_PANEL_MODE
     : 'local-cpa-json-no-rt';
+  const localSub2apiJsonPanelMode = typeof LOCAL_SUB2API_JSON_PANEL_MODE === 'string'
+    ? LOCAL_SUB2API_JSON_PANEL_MODE
+    : 'local-sub2api-json';
   const nextPanelMode = String(options.panelMode || (typeof latestState !== 'undefined' ? latestState?.panelMode : '') || '').trim().toLowerCase();
-  const useNoRtWorkflow = nextPanelMode === noRtPanelMode;
+  const useNoRtWorkflow = nextPanelMode === noRtPanelMode || nextPanelMode === localSub2apiJsonPanelMode;
   const currentlyUsingNoRtWorkflow = (typeof workflowNodes !== 'undefined' ? workflowNodes : [])
     .some((node) => String(node?.nodeId || '').trim() === 'local-cpa-json-export');
   const noRtWorkflowModeChanged = useNoRtWorkflow !== currentlyUsingNoRtWorkflow;
@@ -9531,6 +9545,9 @@ function applySettingsState(state) {
   }
   if (typeof inputLocalCpaJsonRelativeAuthDir !== 'undefined' && inputLocalCpaJsonRelativeAuthDir) {
     inputLocalCpaJsonRelativeAuthDir.value = localCpaJsonRelativeAuthDirNormalizer(state?.localCpaJsonRelativeAuthDir);
+  }
+  if (typeof inputLocalSub2apiJsonSaveDir !== 'undefined' && inputLocalSub2apiJsonSaveDir) {
+    inputLocalSub2apiJsonSaveDir.value = state?.localSub2apiJsonSaveDir || '';
   }
   setLocalCpaStep9Mode(state?.localCpaStep9Mode);
   selectPanelMode.value = normalizePanelMode(
@@ -11638,6 +11655,7 @@ function updatePanelModeUI() {
   }
   const useLocalCpaJson = panelMode === LOCAL_CPA_JSON_PANEL_MODE || panelMode === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
   const useLocalCpaJsonNoRt = panelMode === LOCAL_CPA_JSON_NO_RT_PANEL_MODE;
+  const useLocalSub2apiJson = panelMode === LOCAL_SUB2API_JSON_PANEL_MODE;
   const useSub2Api = panelMode === 'sub2api';
   const useCodex2Api = panelMode === 'codex2api';
   const useCpa = panelMode === 'cpa';
@@ -11649,11 +11667,13 @@ function updatePanelModeUI() {
   };
   setRowDisplay(rowLocalCpaJsonPluginDir, useLocalCpaJson);
   setRowDisplay(rowLocalCpaJsonAdvancedToggle, useLocalCpaJson);
+  setRowDisplay(rowLocalSub2apiJsonSaveDir, useLocalSub2apiJson);
   if (!useLocalCpaJson) {
     localCpaJsonAuthDirExpanded = false;
   }
   updateLocalCpaJsonAuthDirUI(localCpaJsonAuthDirExpanded, panelMode);
   validateLocalCpaJsonPluginDir({ panelMode });
+  validateLocalSub2apiJsonSaveDir({ panelMode });
   setRowDisplay(rowVpsUrl, useCpa);
   setRowDisplay(rowVpsPassword, useCpa);
   setRowDisplay(rowLocalCpaStep9Mode, useCpa);
@@ -11670,9 +11690,11 @@ function updatePanelModeUI() {
   if (step9Btn) {
     step9Btn.textContent = useLocalCpaJson
       ? (useLocalCpaJsonNoRt ? '本地CPA JSON 无RT 导出' : '本地CPA JSON 有RT 导出')
-      : (useSub2Api
-        ? 'SUB2API 回调验证'
-        : (useCodex2Api ? 'Codex2API 回调验证' : 'CPA 回调验证'));
+      : (useLocalSub2apiJson
+        ? '本地 SUB2API JSON 导出'
+        : (useSub2Api
+          ? 'SUB2API 回调验证'
+          : (useCodex2Api ? 'Codex2API 回调验证' : 'CPA 回调验证')));
   }
 }
 
@@ -12513,6 +12535,7 @@ function validateLocalCpaJsonPluginDir(options = {}) {
       const normalized = String(value || '').trim().toLowerCase();
       return normalized === 'local-cpa-json'
         || normalized === 'local-cpa-json-no-rt'
+        || normalized === 'local-sub2api-json'
         || normalized === 'sub2api'
         || normalized === 'codex2api'
         ? normalized
@@ -13029,6 +13052,25 @@ inputLocalCpaJsonPluginDir?.addEventListener('input', () => {
   markSettingsDirty(true);
 });
 
+inputLocalSub2apiJsonSaveDir?.addEventListener('input', () => {
+  validateLocalSub2apiJsonSaveDir();
+  markSettingsDirty(true);
+});
+
+function validateLocalSub2apiJsonSaveDir(options = {}) {
+  if (typeof inputLocalSub2apiJsonSaveDir === 'undefined' || !inputLocalSub2apiJsonSaveDir) {
+    return { valid: true, required: false, saveDir: '' };
+  }
+  const panelMode = options?.panelMode
+    || (typeof getSelectedPanelMode === 'function' ? getSelectedPanelMode() : '');
+  const required = panelMode === 'local-sub2api-json';
+  const saveDir = String(inputLocalSub2apiJsonSaveDir.value || '').trim();
+  const valid = !required || Boolean(saveDir);
+  inputLocalSub2apiJsonSaveDir.classList.toggle('is-invalid', !valid);
+  inputLocalSub2apiJsonSaveDir.title = !valid ? '本地 SUB2API JSON 模式下必须先填写保存目录' : '';
+  return { valid, required, saveDir };
+}
+
 hotmailServiceModeButtons.forEach((button) => {
   button.addEventListener('click', () => {
     if (button.disabled) {
@@ -13179,6 +13221,12 @@ async function startAutoRunFromCurrentSettings() {
     clearPendingAutoRunStartRunCount();
     inputLocalCpaJsonPluginDir?.focus?.();
     throw new Error('当前导出至为本地CPA JSON，请先填写插件目录。');
+  }
+  const localSub2apiJsonValidation = validateLocalSub2apiJsonSaveDir();
+  if (!localSub2apiJsonValidation.valid) {
+    clearPendingAutoRunStartRunCount();
+    inputLocalSub2apiJsonSaveDir?.focus?.();
+    throw new Error('当前导出至为本地 SUB2API JSON，请先填写保存目录。');
   }
   if (!(await ensureGpcApiKeyReadyForStart())) {
     clearPendingAutoRunStartRunCount();
