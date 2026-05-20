@@ -414,7 +414,7 @@
     const exportedAt = normalizeTimestamp(options.now || new Date());
 
     const account = stripUnavailable({
-      name: firstNonEmpty(recordName, email, sourceName, 'ChatGPT Account'),
+      name: firstNonEmpty(email, recordName, sourceName, 'ChatGPT Account'),
       platform: 'openai',
       type: 'oauth',
       concurrency: Number.isFinite(Number(options.concurrency)) ? Number(options.concurrency) : 10,
@@ -433,7 +433,7 @@
       extra: {
         email,
         email_key: toEmailKey(email),
-        name: recordName,
+        name: firstNonEmpty(email, recordName),
         auth_provider: firstNonEmpty(record.authProvider, record.auth_provider),
         source: firstNonEmpty(options.source, record.source),
         last_refresh: exportedAt,
