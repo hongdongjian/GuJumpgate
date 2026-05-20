@@ -100,6 +100,22 @@
 
 ![运行 start-hotmail-helper 脚本](docs/images/github-readme-1779193024860.webp)
 
+#### 关于本地助手 `hotmail_helper.py`
+
+扩展中提到的「本地助手」指的就是仓库内 `scripts/hotmail_helper.py`，它是一个本机运行的轻量 HTTP 服务，默认监听 `127.0.0.1:17373`，零外部依赖（纯 Python 标准库）。
+
+它承担两件事：
+
+1. 代理 Hotmail/Outlook 的 IMAP / Microsoft Graph 收件请求（绕过浏览器的跨域限制）。
+2. 提供 `/save-auth-json` 接口，把扩展生成的 `本地CPA JSON 无RT` / `本地 SUB2API JSON` 写入到你设置的本地目录。
+
+**启动方式**：
+
+- Windows：双击 `start-hotmail-helper.bat`
+- macOS / Linux：`python3 scripts/hotmail_helper.py`
+
+启动后保持窗口不要关闭，扩展会通过 `http://127.0.0.1:17373` 调用它。如果侧边栏出现 `无法连接本地助手 ...` 错误，通常就是 helper 没启动或端口被改过。
+
 ### 7. 打开无痕浏览器并切换代理 (如果你已经用提示词配置好了mihomo，这里就不用再设置ZeroOmega了)
 
 启动无痕浏览器，ZeroOmega 选择 `auto switch`。(如果你已经用提示词配置好了mihomo，这里就不用再设置ZeroOmega了)

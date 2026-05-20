@@ -214,7 +214,7 @@
         }
       }
 
-      await setUsageEntry(account, alias, { used: true, reason: 'allocated' });
+      await setUsageEntry(account, alias, { used: false, reason: 'allocated' });
       if (typeof setEmailState === 'function') {
         await setEmailState(alias, { source: 'generated:outlook-email-plus' });
       }

@@ -441,9 +441,6 @@
     });
 
     const warnings = [];
-    if (!refreshToken) {
-      warnings.push('Missing refresh_token; SUB2API 账号无法自动刷新 access_token。');
-    }
 
     return { output: account || {}, warnings };
   }

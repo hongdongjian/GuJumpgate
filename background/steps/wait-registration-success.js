@@ -161,18 +161,24 @@
       const endpoint = typeof buildLocalHelperEndpoint === 'function'
         ? buildLocalHelperEndpoint(helperBaseUrl, '/save-auth-json')
         : new URL('/save-auth-json', `${helperBaseUrl.replace(/\/+$/, '')}/`).toString();
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          filePath: artifact.filePath,
-          directoryPath: artifact.directoryPath,
-          content: artifact.jsonText,
-        }),
-      });
+      let response;
+      try {
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            filePath: artifact.filePath,
+            directoryPath: artifact.directoryPath,
+            content: artifact.jsonText,
+          }),
+        });
+      } catch (error) {
+        const reason = String(error?.message || error || '').trim();
+        throw new Error(`无法连接本地助手 ${endpoint}（${reason || '请求失败'}）。请确认 hotmail_helper.py 已启动且地址 ${helperBaseUrl} 正确。`);
+      }
 
       let payload = {};
       try {

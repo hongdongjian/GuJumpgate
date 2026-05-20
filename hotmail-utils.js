@@ -575,7 +575,7 @@
 
   function getHotmailMailApiRequestConfig() {
     return {
-      timeoutMs: 15000,
+      timeoutMs: 26000,
     };
   }
 

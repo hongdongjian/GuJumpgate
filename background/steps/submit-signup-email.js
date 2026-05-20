@@ -13,6 +13,7 @@
       ensureSignupPostIdentityPageReadyInTab = ensureSignupPostEmailPageReadyInTab,
       getTabId,
       isTabAlive,
+      markCurrentSubmittedEmailUsed = null,
       phoneVerificationHelpers = null,
       resolveSignupMethod = () => 'email',
       resolveSignupEmailForFlow,
@@ -475,6 +476,10 @@
           return;
         }
         throw new Error(finalErrorMessage);
+      }
+
+      if (typeof markCurrentSubmittedEmailUsed === 'function') {
+        await markCurrentSubmittedEmailUsed();
       }
 
       if (!step2Result?.alreadyOnPasswordPage) {

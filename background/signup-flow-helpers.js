@@ -51,7 +51,7 @@
       }
 
       return waitForTabStableComplete(tabId, {
-        timeoutMs: 45000,
+        timeoutMs: 78000,
         retryDelayMs: 300,
         stableMs: 3000,
         initialDelayMs: 300,
@@ -69,7 +69,7 @@
       await ensureContentScriptReadyOnTab('signup-page', tabId, {
         inject: SIGNUP_PAGE_INJECT_FILES,
         injectSource: 'signup-page',
-        timeoutMs: 45000,
+        timeoutMs: 78000,
         retryDelayMs: 900,
         logMessage: `步骤 ${step}：ChatGPT 官网仍在加载，正在重试连接内容脚本...`,
       });
@@ -85,7 +85,7 @@
         source: 'background',
         payload: {},
       }, {
-        timeoutMs: 20000,
+        timeoutMs: 39000,
         retryDelayMs: 700,
         logMessage: `步骤 ${step}：官网注册入口正在切换，等待页面恢复...`,
       });
@@ -147,7 +147,7 @@
 
       if (!skipUrlWait) {
         const matchedTab = await waitForTabUrlMatch(tabId, (url) => Boolean(resolveSignupPostIdentityState(url)), {
-          timeoutMs: 45000,
+          timeoutMs: 78000,
           retryDelayMs: 300,
         });
         if (!matchedTab) {
@@ -174,7 +174,7 @@
 
       if (landingState !== 'password_page' && typeof waitForTabStableComplete === 'function') {
         const stableTab = await waitForTabStableComplete(tabId, {
-          timeoutMs: 45000,
+          timeoutMs: 78000,
           retryDelayMs: 300,
           stableMs: 800,
           initialDelayMs: 300,
@@ -191,7 +191,7 @@
       await ensureContentScriptReadyOnTab('signup-page', tabId, {
         inject: SIGNUP_PAGE_INJECT_FILES,
         injectSource: 'signup-page',
-        timeoutMs: 45000,
+        timeoutMs: 78000,
         retryDelayMs: 900,
         logMessage: landingState === 'password_page'
           ? `步骤 ${step}：密码页仍在加载，正在重试连接内容脚本...`
@@ -212,7 +212,7 @@
         source: 'background',
         payload: {},
       }, {
-        timeoutMs: 20000,
+        timeoutMs: 39000,
         retryDelayMs: 700,
         logMessage: `步骤 ${step}：认证页正在切换，等待密码页重新就绪...`,
       });
@@ -249,7 +249,7 @@
       await ensureContentScriptReadyOnTab('signup-page', tabId, {
         inject: SIGNUP_PAGE_INJECT_FILES,
         injectSource: 'signup-page',
-        timeoutMs: 45000,
+        timeoutMs: 78000,
         retryDelayMs: 900,
         logMessage: `步骤 ${step}：认证页仍在切换，正在等待页面恢复后继续确认提交流程...`,
       });
@@ -266,7 +266,7 @@
             prepareLogLabel: '步骤 3 收尾',
           },
         }, {
-          timeoutMs: 30000,
+          timeoutMs: 39000,
           retryDelayMs: 700,
           logMessage: `步骤 ${step}：密码已提交，正在确认是否进入下一页面，必要时自动恢复重试页...`,
         });

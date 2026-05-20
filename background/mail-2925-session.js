@@ -527,7 +527,7 @@
         const matchedLoginTab = await waitForTabUrlMatch(
           tabId,
           (url) => isMail2925LoginUrl(url),
-          { timeoutMs: 15000, retryDelayMs: 300 }
+          { timeoutMs: 26000, retryDelayMs: 300 }
         );
         await addLog(`2925：等待最终落到登录页结果：${matchedLoginTab?.url || '超时'}`, matchedLoginTab ? 'info' : 'warn');
         if (matchedLoginTab?.url) {
@@ -539,7 +539,7 @@
         await ensureContentScriptReadyOnTab(MAIL2925_SOURCE, tabId, {
           inject: MAIL2925_INJECT,
           injectSource: MAIL2925_INJECT_SOURCE,
-          timeoutMs: 20000,
+          timeoutMs: 39000,
           retryDelayMs: 800,
           logMessage: '步骤 0：2925 登录页内容脚本未就绪，正在等待页面稳定后继续登录...',
         });

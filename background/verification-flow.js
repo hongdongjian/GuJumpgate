@@ -664,8 +664,8 @@
               payload: {},
             },
             {
-              timeoutMs: 10000,
-              responseTimeoutMs: 5000,
+              timeoutMs: 20000,
+              responseTimeoutMs: 10000,
               maxRecoveryAttempts: 1,
               logStep: activeVerificationLogStep,
               logStepKey: step === 4 ? 'fetch-signup-code' : 'fetch-login-code',
@@ -1152,7 +1152,7 @@
         } catch (err) {
           if (step === 4 && isRetryableVerificationTransportError(err)) {
             const fallback = await detectStep4PostSubmitFallback(signupTabId, {
-              timeoutMs: 9000,
+              timeoutMs: 20000,
               pollIntervalMs: 300,
             });
             if (fallback.success) {
@@ -1172,7 +1172,7 @@
           if (step === 8 && isRetryableVerificationTransportError(err)) {
             const fallback = await detectStep8PostSubmitFallback({
               step,
-              timeoutMs: 9000,
+              timeoutMs: 20000,
               pollIntervalMs: 300,
             });
             if (fallback.success) {
@@ -1215,7 +1215,7 @@
             });
             const fallback = await detectStep8PostSubmitFallback({
               step,
-              timeoutMs: 9000,
+              timeoutMs: 20000,
               pollIntervalMs: 300,
             });
             if (fallback.invalidCode) {

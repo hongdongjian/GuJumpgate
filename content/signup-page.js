@@ -485,7 +485,7 @@ function createStep405RecoveryLimitError(step, count) {
   return new Error(`${getStep405RecoveryErrorPrefix(normalizedStep)}${message}`);
 }
 
-async function handle405ResendError(step, remainingTimeout = 30000) {
+async function handle405ResendError(step, remainingTimeout = 40000) {
   const currentCount = getStep405RecoveryCount(step);
   if (Number(step) === 4 && currentCount >= getStep405RecoveryLimit(step)) {
     throw createStep405RecoveryLimitError(step, currentCount);
@@ -1091,7 +1091,7 @@ async function waitForSignupEntryState(options = {}) {
         return typeof gate === 'function' ? gate(metadata, operation) : operation();
       };
   const {
-    timeout = 15000,
+    timeout = 26000,
     autoOpenEntry = false,
     step = 2,
     logDiagnostics = false,
@@ -1181,9 +1181,9 @@ async function waitForSignupEntryState(options = {}) {
       }
     }
 
-    if (logDiagnostics && !slowSnapshotLogged && Date.now() - start >= 5000) {
+    if (logDiagnostics && !slowSnapshotLogged && Date.now() - start >= 15000) {
       slowSnapshotLogged = true;
-      log(`步骤 ${step}：等待注册入口超过 5 秒，页面诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
+      log(`步骤 ${step}：等待注册入口超过 15 秒，页面诊断快照：${JSON.stringify(getSignupEntryDiagnostics())}`, 'warn');
     }
 
     await sleep(250);
@@ -1196,7 +1196,7 @@ async function waitForSignupEntryState(options = {}) {
   return finalSnapshot;
 }
 
-async function ensureSignupEntryReady(timeout = 15000) {
+async function ensureSignupEntryReady(timeout = 26000) {
   const snapshot = await waitForSignupEntryState({ timeout, autoOpenEntry: false });
   if (snapshot.state === 'entry_home' || snapshot.state === 'phone_entry' || snapshot.state === 'email_entry' || snapshot.state === 'password_page') {
     return {
@@ -1227,7 +1227,7 @@ async function ensureSignupPhoneEntryReady(timeout = 25000) {
   throw new Error('当前页面没有可用的手机号注册入口，也不在密码页。URL: ' + location.href);
 }
 
-async function ensureSignupPasswordPageReady(timeout = 20000) {
+async function ensureSignupPasswordPageReady(timeout = 26000) {
   const start = Date.now();
 
   while (Date.now() - start < timeout) {
@@ -1258,7 +1258,7 @@ async function fillSignupEmailAndContinue(email, step) {
   const normalizedEmail = String(email || '').trim().toLowerCase();
 
   const snapshot = await waitForSignupEntryState({
-    timeout: 20000,
+    timeout: 40000,
     autoOpenEntry: true,
     step,
     logDiagnostics: step === 2,
@@ -2404,7 +2404,7 @@ async function waitForSignupPhoneEntryState(options = {}) {
         return typeof gate === 'function' ? gate(metadata, operation) : operation();
       };
   const {
-    timeout = 20000,
+    timeout = 26000,
     step = 2,
   } = options;
   const start = Date.now();
@@ -3144,7 +3144,7 @@ function isDocumentLoadComplete() {
   return getDocumentReadyStateSnapshot() === 'complete';
 }
 
-async function waitForDocumentLoadComplete(timeout = 15000, label = '页面') {
+async function waitForDocumentLoadComplete(timeout = 26000, label = '页面') {
   const start = Date.now();
 
   while (Date.now() - start < timeout) {
@@ -3213,7 +3213,7 @@ const phoneAuthHelpers = self.MultiPagePhoneAuth?.createPhoneAuthHelpers?.({
   },
 };
 
-async function waitForPhoneVerificationProfileCompletion(timeout = 30000) {
+async function waitForPhoneVerificationProfileCompletion(timeout = 40000) {
   const start = Date.now();
 
   while (Date.now() - start < timeout) {
@@ -3551,7 +3551,7 @@ async function recoverCurrentAuthRetryPage(payload = {}) {
     maxClickAttempts = 5,
     pathPatterns = null,
     step = null,
-    timeoutMs = 12000,
+    timeoutMs = 24000,
     waitAfterClickMs = 3000,
   } = payload;
   const resolvedPathPatterns = Array.isArray(pathPatterns)
@@ -4309,7 +4309,7 @@ function getLoginAuthStateLabel(snapshot) {
   }
 }
 
-async function waitForKnownLoginAuthState(timeout = 15000) {
+async function waitForKnownLoginAuthState(timeout = 26000) {
   const start = Date.now();
   let snapshot = normalizeStep6Snapshot(inspectLoginAuthState());
 
@@ -4417,7 +4417,7 @@ async function createStep6LoginTimeoutRecoveryTransition(reason, snapshot, messa
         flow: 'login',
         logLabel: `步骤 ${visibleStep}：检测到登录超时报错，正在点击“重试”恢复当前页面`,
         step: visibleStep,
-        timeoutMs: 12000,
+        timeoutMs: 24000,
       });
       recovered = Boolean(recoveryResult?.recovered);
       if (recovered) {
@@ -4503,7 +4503,7 @@ async function finalizeStep6VerificationReady(options = {}) {
     visibleStep = 7,
     logLabel = `步骤 ${visibleStep} 收尾`,
     loginVerificationRequestedAt = null,
-    timeout = 12000,
+    timeout = 24000,
     via = 'verification_page_ready',
     allowPhoneVerificationPage = false,
   } = options;
@@ -4755,7 +4755,7 @@ async function waitForSignupVerificationTransition(timeout = 5000) {
   return inspectSignupVerificationState();
 }
 
-async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
+async function prepareSignupVerificationFlow(payload = {}, timeout = 40000) {
   const performOperationWithDelay = typeof getOperationDelayRunner === 'function'
     ? getOperationDelayRunner()
     : async (metadata, operation) => {
@@ -4858,7 +4858,7 @@ async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
         flow: 'signup',
         logLabel: `${prepareLogLabel}：检测到注册认证重试页，正在点击“重试”恢复（第 ${recoveryRound}/${maxRecoveryRounds} 次）`,
         step: 4,
-        timeoutMs: 12000,
+        timeoutMs: 24000,
       });
       continue;
     }
@@ -4907,7 +4907,7 @@ async function prepareSignupVerificationFlow(payload = {}, timeout = 30000) {
 
 
 async function waitForVerificationSubmitOutcome(step, timeout, options = {}) {
-  const resolvedTimeout = timeout ?? (step === 8 ? 30000 : 12000);
+  const resolvedTimeout = timeout ?? (step === 8 ? 40000 : 24000);
   const purpose = options?.purpose || '';
   const start = Date.now();
   let recoveryCount = 0;
@@ -4937,7 +4937,7 @@ async function waitForVerificationSubmitOutcome(step, timeout, options = {}) {
         flow: retryFlow,
         logLabel: `步骤 ${step}：验证码提交后检测到认证重试页，正在点击“重试”恢复`,
         step,
-        timeoutMs: 12000,
+        timeoutMs: 24000,
       });
       continue;
     }
@@ -5182,7 +5182,7 @@ async function fillVerificationCode(step, payload) {
     // Before looking for input, check if page is in 405 error state
     if (is405MethodNotAllowedPage()) {
       log(`步骤 ${step}：检测到 405 错误页面，正在恢复...`, 'warn');
-      await handle405ResendError(step, 30000);
+      await handle405ResendError(step, 40000);
       continue;
     }
 
@@ -5198,7 +5198,7 @@ async function fillVerificationCode(step, payload) {
       // No input found — check if it's a 405 error and can be recovered
       if (is405MethodNotAllowedPage() && retry < maxRetries) {
         log(`步骤 ${step}：未找到验证码输入框且页面出现 405 错误，正在恢复...`, 'warn');
-        await handle405ResendError(step, 30000);
+        await handle405ResendError(step, 40000);
         continue;
       }
 
@@ -5461,7 +5461,7 @@ async function waitForStep6PostSubmitTransition(options = {}) {
   };
 }
 
-async function waitForStep6EmailSubmitTransition(emailSubmittedAt, timeout = 12000, options = {}) {
+async function waitForStep6EmailSubmitTransition(emailSubmittedAt, timeout = 24000, options = {}) {
   return waitForStep6PostSubmitTransition({
     timeout,
     visibleStep: Math.floor(Number(options?.visibleStep) || 0) || 7,
@@ -5477,7 +5477,7 @@ async function waitForStep6EmailSubmitTransition(emailSubmittedAt, timeout = 120
   });
 }
 
-async function waitForStep6PhoneSubmitTransition(phoneSubmittedAt, timeout = 12000, options = {}) {
+async function waitForStep6PhoneSubmitTransition(phoneSubmittedAt, timeout = 24000, options = {}) {
   return waitForStep6PostSubmitTransition({
     timeout,
     visibleStep: Math.floor(Number(options?.visibleStep) || 0) || 7,
@@ -5773,7 +5773,7 @@ async function step6LoginFromPhonePage(payload, snapshot) {
   await triggerLoginSubmitAction(submitButton, verifiedPhoneInput);
   log(`步骤 ${visibleStep}：手机号已提交。`, 'info', { step: visibleStep, stepKey: 'oauth-login' });
 
-  const transition = await waitForStep6PhoneSubmitTransition(phoneSubmittedAt, 12000, { visibleStep });
+  const transition = await waitForStep6PhoneSubmitTransition(phoneSubmittedAt, 24000, { visibleStep });
   if (transition.action === 'done') {
     if (transition.result?.skipLoginVerificationStep || transition.result?.addEmailPage) {
       return transition.result;
@@ -5846,7 +5846,7 @@ async function switchFromEmailPageToPhoneLogin(payload, snapshot) {
   await performOperationWithDelay({ stepKey: 'oauth-login', kind: 'click', label: 'switch-phone-login' }, async () => {
     simulateClick(phoneEntryTrigger);
   });
-  const nextSnapshot = normalizeStep6Snapshot(await waitForPhoneLoginEntrySwitchTransition(20000));
+  const nextSnapshot = normalizeStep6Snapshot(await waitForPhoneLoginEntrySwitchTransition(26000));
   if (nextSnapshot.state === 'phone_entry_page') {
     return step6LoginFromPhonePage(payload, nextSnapshot);
   }
@@ -6004,7 +6004,7 @@ async function step6LoginFromEmailPage(payload, snapshot) {
   await triggerLoginSubmitAction(currentSnapshot.submitButton, emailInput);
   log('已提交邮箱', 'info', { step: visibleStep, stepKey: 'oauth-login' });
 
-  const transition = await waitForStep6EmailSubmitTransition(emailSubmittedAt, 12000, { visibleStep });
+  const transition = await waitForStep6EmailSubmitTransition(emailSubmittedAt, 24000, { visibleStep });
   if (transition.action === 'done') {
     if (transition.result?.skipLoginVerificationStep || transition.result?.addEmailPage) {
       return transition.result;
@@ -6129,7 +6129,7 @@ async function step6_login(payload) {
   throw new Error(`无法识别当前登录页面状态。URL: ${snapshot?.url || location.href}`);
 }
 
-async function waitForAddEmailPageReady(timeout = 15000) {
+async function waitForAddEmailPageReady(timeout = 26000) {
   const start = Date.now();
   let sawAddEmailPage = false;
   while (Date.now() - start < timeout) {
@@ -6754,7 +6754,7 @@ async function recoverStep5SubmitRetryPage(payload = {}) {
     maxClickAttempts: payload?.maxClickAttempts ?? 2,
     pathPatterns: Array.isArray(payload?.pathPatterns) ? payload.pathPatterns : getStep5AuthRetryPathPatterns(),
     step: 5,
-    timeoutMs: payload?.timeoutMs ?? 12000,
+    timeoutMs: payload?.timeoutMs ?? 24000,
   });
 }
 
@@ -6817,7 +6817,7 @@ async function waitForStep5SubmitOutcome(options = {}) {
         maxClickAttempts: 2,
         pathPatterns: getStep5AuthRetryPathPatterns(),
         step: 5,
-        timeoutMs: 12000,
+        timeoutMs: 24000,
       });
       lastSubmitClickAt = Date.now();
       continue;

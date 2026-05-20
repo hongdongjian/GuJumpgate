@@ -2024,10 +2024,29 @@ async function clickPlusSubscribe(payload = {}) {
 }
 
 async function readChatGptSessionAccessToken() {
-  const sessionResponse = await fetch('/api/auth/session', {
-    credentials: 'include',
-  });
-  const session = await sessionResponse.json().catch(() => ({}));
+  await waitForDocumentComplete();
+  let session = {};
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const sessionResponse = await fetch('/api/auth/session', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      session = await sessionResponse.json().catch(() => ({}));
+      const accessToken = String(session?.accessToken || '').trim();
+      if (accessToken) {
+        return { session, accessToken };
+      }
+      lastError = new Error('session 返回中缺少 accessToken');
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(5000);
+  }
+  if (lastError) {
+    log(`Plus：读取 ChatGPT 会话失败：${lastError?.message || lastError}`, 'warn');
+  }
   return {
     session,
     accessToken: String(session?.accessToken || '').trim(),

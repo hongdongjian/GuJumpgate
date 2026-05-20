@@ -2492,6 +2492,22 @@ async function markCurrentRegistrationAccountUsed(state = {}, options = {}) {
   return { updated };
 }
 
+async function markCurrentSubmittedEmailUsed() {
+  const state = await getState();
+  const provider = String(state?.mailProvider || '').trim().toLowerCase();
+  if (provider !== OUTLOOK_EMAIL_PLUS_PROVIDER || !outlookEmailPlusProvider) {
+    return;
+  }
+  const currentEmail = String(state?.email || '').trim();
+  if (!currentEmail) return;
+  try {
+    await outlookEmailPlusProvider.markAliasUsed(currentEmail, 'submitted');
+    await addLog(`outlookEmailPlus：别名 ${currentEmail} 已在邮箱提交后标记为已用。`, 'info');
+  } catch (error) {
+    await addLog(`outlookEmailPlus：标记别名失败：${error?.message || error}`, 'warn');
+  }
+}
+
 function getCustomEmailPoolEmailForRun(state = {}, targetRun = 1) {
   const entries = getCustomEmailPool(state);
   const numericRun = Math.max(1, Math.floor(Number(targetRun) || 1));
@@ -13038,6 +13054,7 @@ const step2Executor = self.MultiPageBackgroundStep2?.createStep2Executor({
   ensureSignupPostIdentityPageReadyInTab: signupFlowHelpers.ensureSignupPostIdentityPageReadyInTab,
   getTabId,
   isTabAlive,
+  markCurrentSubmittedEmailUsed,
   phoneVerificationHelpers,
   resolveSignupMethod,
   resolveSignupEmailForFlow,
