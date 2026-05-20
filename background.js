@@ -12174,6 +12174,16 @@ async function ensureAutoEmailReady(targetRun, totalRuns, attemptRuns) {
     return account.registrationAliasEmail || (await getState()).email || account.email;
   }
 
+  if (String(currentState?.mailProvider || '').trim().toLowerCase() === OUTLOOK_EMAIL_PLUS_PROVIDER && outlookEmailPlusProvider) {
+    const result = await outlookEmailPlusProvider.ensureEmail();
+    const allocatedEmail = result?.email || result?.registrationAliasEmail || '';
+    if (!allocatedEmail) {
+      throw new Error('outlookEmailPlus 未能分配可用邮箱别名。');
+    }
+    await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：outlookEmailPlus 已分配 ${allocatedEmail}（第 ${attemptRuns} 次尝试）===`, 'ok');
+    return allocatedEmail;
+  }
+
   if (isLuckmailProvider(currentState)) {
     const purchase = await ensureLuckmailPurchaseForFlow({ allowReuse: true });
     await addLog(`=== 目标 ${targetRun}/${totalRuns} 轮：LuckMail 邮箱已就绪：${purchase.email_address}（第 ${attemptRuns} 次尝试）===`, 'ok');
