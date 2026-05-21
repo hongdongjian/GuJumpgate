@@ -399,6 +399,14 @@ async function runHostedOpenAiCheckoutStep(payload = {}) {
     return fillHostedOpenAiVerificationCode(payload.verificationCode);
   }
 
+  const amountSummary = getCheckoutAmountSummary();
+  if (amountSummary?.hasTodayDue && !amountSummary.isZero) {
+    const amountLabel = amountSummary.rawAmount || (
+      Number.isFinite(Number(amountSummary.amount)) ? String(amountSummary.amount) : '未知金额'
+    );
+    throw new Error(`PLUS_CHECKOUT_NON_FREE_TRIAL::步骤 6：检测到今日应付金额不是 0（${amountLabel}），当前账号没有免费试用资格，已自动停止整个流程。`);
+  }
+
   await sleep(2000);
   const payPalButton = findHostedOpenAiPayPalButton();
   if (payPalButton) {
@@ -481,7 +489,63 @@ function getTextAfterTodayDueLabel(text = '') {
   return normalized.slice((match.index || 0) + match[0].length).trim();
 }
 
+function getHostedCheckoutTotalAmountSummary() {
+  if (!isHostedOpenAiCheckoutPage() || typeof document?.querySelector !== 'function') {
+    return null;
+  }
+
+  const selectors = [
+    '#OrderDetails-TotalAmount .CurrencyAmount',
+    '#OrderDetails-TotalAmount',
+    '#ProductSummary-totalAmount .CurrencyAmount',
+    '#ProductSummary-totalAmount',
+  ];
+  const seenElements = new Set();
+  const parsedEntries = [];
+
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (!element || seenElements.has(element)) {
+      continue;
+    }
+    seenElements.add(element);
+    const text = normalizeText(element.innerText || element.textContent || '');
+    if (!text) {
+      continue;
+    }
+    const parsed = parseLocalizedAmount(text);
+    if (!parsed) {
+      continue;
+    }
+    parsedEntries.push({
+      selector,
+      amount: parsed.amount,
+      rawAmount: text,
+    });
+  }
+
+  if (!parsedEntries.length) {
+    return null;
+  }
+
+  const nonZeroEntry = parsedEntries.find((entry) => Math.abs(Number(entry.amount) || 0) >= 0.005) || null;
+  const chosenEntry = nonZeroEntry || parsedEntries[0];
+  const isZero = parsedEntries.every((entry) => Math.abs(Number(entry.amount) || 0) < 0.005);
+  return {
+    hasTodayDue: true,
+    amount: Number(chosenEntry.amount) || 0,
+    isZero,
+    rawAmount: chosenEntry.rawAmount || '',
+    labelText: 'hosted checkout total amount',
+  };
+}
+
 function getCheckoutAmountSummary() {
+  const hostedSummary = getHostedCheckoutTotalAmountSummary();
+  if (hostedSummary) {
+    return hostedSummary;
+  }
+
   const elements = getVisibleControls('div, span, p, strong, b');
   const labelPattern = /今日应付金额|今日应付|今天应付|amount\s*due\s*today|due\s*today|today'?s\s*total|total\s*due\s*today/i;
   const amountPattern = /[$€£¥]\s*[+-]?\d|[+-]?\d+(?:[.,]\d{1,2})?\s*[$€£¥]/;

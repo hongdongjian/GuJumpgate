@@ -95,6 +95,7 @@
       isTabAlive,
       markCurrentRegistrationAccountUsed,
       queryTabsInAutomationWindow = null,
+      requestStop = null,
       setState,
       sleepWithStop,
       waitForTabCompleteUntilStopped,
@@ -1696,14 +1697,19 @@
       const amountLabel = amountSummary.rawAmount || (
         Number.isFinite(Number(amountSummary.amount)) ? String(amountSummary.amount) : '未知金额'
       );
-      await addLog(`步骤 7：${phaseLabel}检测到今日应付金额不是 0（${amountLabel}），说明当前账号没有免费试用资格，将跳过支付提交。`, 'warn');
+      const stopReason = `步骤 7：${phaseLabel}检测到今日应付金额不是 0（${amountLabel}），说明当前账号没有免费试用资格，已自动停止整个流程。`;
+      await addLog(stopReason, 'warn');
       if (typeof markCurrentRegistrationAccountUsed === 'function') {
         await markCurrentRegistrationAccountUsed(state, {
           reason: 'plus-checkout-non-free-trial',
           logPrefix: 'Plus Checkout：当前账号没有免费试用资格',
         });
       }
-      throw new Error(`PLUS_CHECKOUT_NON_FREE_TRIAL::步骤 7：今日应付金额不是 0（${amountLabel}），当前账号没有免费试用资格，已跳过支付提交。`);
+      if (typeof requestStop === 'function') {
+        await requestStop({ logMessage: false });
+        throw new Error('流程已被用户停止。');
+      }
+      throw new Error(`PLUS_CHECKOUT_NON_FREE_TRIAL::${stopReason}`);
     }
 
     async function getReadyCheckoutFrames(tabId) {

@@ -39,6 +39,7 @@
       fetch: fetchImpl = null,
       getState = null,
       registerTab,
+      requestStop = null,
       sendTabMessageUntilStopped,
       setState,
       sleepWithStop,
@@ -716,12 +717,30 @@
       await completeNodeFromBackground('plus-checkout-create', completionPayload);
     }
 
+    function isHostedCheckoutNonFreeTrialFailure(error) {
+      const message = String(typeof error === 'string' ? error : error?.message || '');
+      return /PLUS_CHECKOUT_NON_FREE_TRIAL::|今日应付金额不是\s*0|没有免费试用资格/i.test(message);
+    }
+
+    function stripHostedCheckoutNonFreeTrialPrefix(message = '') {
+      return String(message || '').replace(/^PLUS_CHECKOUT_NON_FREE_TRIAL::/i, '').trim();
+    }
+
     function startHostedCheckoutAutomation(tabId, completionPayload = {}) {
       if (!enableHostedCheckoutAutomation) {
         return;
       }
       void runHostedCheckoutAutomation(tabId, completionPayload).catch(async (error) => {
         const message = error?.message || String(error || 'hosted checkout automation failed');
+        if (isHostedCheckoutNonFreeTrialFailure(error)) {
+          const stopReason = stripHostedCheckoutNonFreeTrialPrefix(message)
+            || '步骤 6：检测到当前账号没有免费试用资格，已自动停止整个流程。';
+          await addLog(stopReason, 'warn');
+          if (typeof requestStop === 'function') {
+            await requestStop({ logMessage: false });
+            return;
+          }
+        }
         await addLog(`步骤 6：hosted checkout 自动化失败：${message}`, 'error');
         if (typeof failNodeFromBackground === 'function') {
           await failNodeFromBackground('plus-checkout-create', message);
