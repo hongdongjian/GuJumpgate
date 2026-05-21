@@ -21,6 +21,9 @@
   const HOSTED_CHECKOUT_PAYPAL_LOOP_TIMEOUT_MS = 10 * 60 * 1000;
   const HOSTED_CHECKOUT_VERIFICATION_POLL_ATTEMPTS = 12;
   const HOSTED_CHECKOUT_VERIFICATION_POLL_INTERVAL_MS = 5000;
+  const HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MIN_SECONDS = 0;
+  const HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MAX_SECONDS = 60;
+  const HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_DEFAULT_SECONDS = 4;
   const HOSTED_CHECKOUT_PAYPAL_DEFAULT_PHONE = '1234567890';
   const HOSTED_CHECKOUT_SUCCESS_URL_PATTERN = /^https:\/\/(?:chatgpt\.com|www\.chatgpt\.com|chat\.openai\.com)\/(?:backend-api\/)?payments\/success(?:[/?#]|$)/i;
 
@@ -107,6 +110,7 @@
       if (chrome?.storage?.local?.get) {
         stored = await chrome.storage.local.get([
           'hostedCheckoutVerificationUrl',
+          'hostedCheckoutVerificationPopupDelaySeconds',
           'hostedCheckoutPhoneNumber',
         ]).catch(() => ({}));
       }
@@ -122,10 +126,51 @@
         || HOSTED_CHECKOUT_PAYPAL_DEFAULT_PHONE
         || ''
       ).trim();
+      const verificationPopupDelaySeconds = normalizeHostedCheckoutVerificationPopupDelaySeconds(
+        stored?.hostedCheckoutVerificationPopupDelaySeconds ?? state?.hostedCheckoutVerificationPopupDelaySeconds
+      );
       return {
         verificationUrl,
+        verificationPopupDelaySeconds,
         phone,
       };
+    }
+
+    function normalizeHostedCheckoutVerificationPopupDelaySeconds(
+      value,
+      fallback = HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_DEFAULT_SECONDS
+    ) {
+      const rawValue = String(value ?? '').trim();
+      const fallbackValue = Math.min(
+        HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MAX_SECONDS,
+        Math.max(
+          HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MIN_SECONDS,
+          Math.floor(Number(fallback) || HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_DEFAULT_SECONDS)
+        )
+      );
+      if (!rawValue) {
+        return fallbackValue;
+      }
+      const numeric = Number(rawValue);
+      if (!Number.isFinite(numeric)) {
+        return fallbackValue;
+      }
+      return Math.min(
+        HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MAX_SECONDS,
+        Math.max(HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MIN_SECONDS, Math.floor(numeric))
+      );
+    }
+
+    async function waitForHostedCheckoutVerificationPopupDelay() {
+      const runtimeConfig = await getHostedCheckoutRuntimeConfig();
+      const delaySeconds = normalizeHostedCheckoutVerificationPopupDelaySeconds(
+        runtimeConfig?.verificationPopupDelaySeconds
+      );
+      if (delaySeconds <= 0) {
+        return;
+      }
+      await addLog(`步骤 6：已检测到 hosted checkout 验证码弹窗，按设置等待 ${delaySeconds} 秒后再获取验证码。`, 'info');
+      await sleepWithStop(delaySeconds * 1000);
     }
 
     async function waitForCheckoutSurface(tabId) {
@@ -590,6 +635,7 @@
         const pageState = await getHostedCheckoutPayPalState(tabId);
         if (pageState.hostedStage === 'verification' && pageState.verificationInputsVisible) {
           await addLog('步骤 6：检测到 PayPal hosted checkout 验证码弹窗，正在获取并填写验证码...', 'info');
+          await waitForHostedCheckoutVerificationPopupDelay();
           const verificationCode = await pollHostedCheckoutVerificationCode();
           await runHostedCheckoutPayPalStep(tabId, {
             verificationCode,
