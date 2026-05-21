@@ -914,7 +914,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   plusModeEnabled: true,
   plusPaymentMethod: DEFAULT_PLUS_PAYMENT_METHOD,
   plusHostedCheckoutOauthDelaySeconds: 10,
-  hostedCheckoutVerificationPopupDelaySeconds: 4,
+  hostedCheckoutVerificationPopupDelaySeconds: 20,
   hostedCheckoutVerificationUrl: 'https://mail.test.com/api/text-relay/eca_tr_xxxxxxxxx',
   hostedCheckoutPhoneNumber: '1234567890',
   hostedCheckoutSmsPoolText: '',
@@ -1327,12 +1327,12 @@ function normalizePlusHostedCheckoutOauthDelaySeconds(value, fallback = 10) {
   );
 }
 
-function normalizeHostedCheckoutVerificationPopupDelaySeconds(value, fallback = 4) {
+function normalizeHostedCheckoutVerificationPopupDelaySeconds(value, fallback = 20) {
   const rawValue = String(value ?? '').trim();
   if (!rawValue) {
     return Math.min(
       HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MAX_SECONDS,
-      Math.max(HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MIN_SECONDS, Math.floor(Number(fallback) || 4))
+      Math.max(HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MIN_SECONDS, Math.floor(Number(fallback) || 20))
     );
   }
 

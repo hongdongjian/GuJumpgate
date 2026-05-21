@@ -2831,12 +2831,12 @@ function normalizePlusHostedCheckoutOauthDelaySeconds(value) {
 function normalizeHostedCheckoutVerificationPopupDelaySeconds(value) {
   const rawValue = String(value ?? '').trim();
   if (!rawValue) {
-    return 4;
+    return 20;
   }
 
   const numeric = Number(rawValue);
   if (!Number.isFinite(numeric)) {
-    return 4;
+    return 20;
   }
 
   return Math.min(60, Math.max(0, Math.floor(numeric)));

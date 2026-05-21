@@ -30,8 +30,17 @@
         .join('\n');
     }
 
+    function normalizeUsHostedPhoneDigits(value = '') {
+      const rawValue = normalizeText(value);
+      const digits = rawValue.replace(/\D+/g, '');
+      if (digits.length === 11 && digits.startsWith('1')) {
+        return digits.slice(1);
+      }
+      return digits || rawValue;
+    }
+
     function normalizePoolPhone(value = '') {
-      return normalizeText(value);
+      return normalizeUsHostedPhoneDigits(value);
     }
 
     function normalizePoolUrl(value = '') {
@@ -51,12 +60,7 @@
     }
 
     function formatPayPalLocalPhone(value = '') {
-      const rawValue = normalizeText(value);
-      const digits = rawValue.replace(/\D+/g, '');
-      if (rawValue.startsWith('+1') && digits.length === 11 && digits.startsWith('1')) {
-        return digits.slice(1);
-      }
-      return digits;
+      return normalizeUsHostedPhoneDigits(value);
     }
 
     function buildKey(phone = '', verificationUrl = '') {
