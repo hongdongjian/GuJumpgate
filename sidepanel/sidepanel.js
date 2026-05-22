@@ -190,6 +190,13 @@ const payPalAccountMenu = document.getElementById('paypal-account-menu');
 const btnAddPayPalAccount = document.getElementById('btn-add-paypal-account');
 const btnGpcCardKeyPurchase = document.getElementById('btn-gpc-card-key-purchase');
 const plusPaymentMethodCaption = document.getElementById('plus-payment-method-caption');
+const rowPlusCheckoutConversionMode = document.getElementById('row-plus-checkout-conversion-mode');
+const selectPlusCheckoutConversionMode = document.getElementById('select-plus-checkout-conversion-mode');
+const plusCheckoutConversionModeCaption = document.getElementById('plus-checkout-conversion-mode-caption');
+const rowPlusCheckoutCloudApiUrl = document.getElementById('row-plus-checkout-cloud-api-url');
+const inputPlusCheckoutCloudApiUrl = document.getElementById('input-plus-checkout-cloud-api-url');
+const rowPlusCheckoutCloudApiKey = document.getElementById('row-plus-checkout-cloud-api-key');
+const inputPlusCheckoutCloudApiKey = document.getElementById('input-plus-checkout-cloud-api-key');
 const rowPlusHostedCheckoutOauthDelay = document.getElementById('row-plus-hosted-checkout-oauth-delay');
 const inputPlusHostedCheckoutOauthDelaySeconds = document.getElementById('input-plus-hosted-checkout-oauth-delay-seconds');
 const rowHostedCheckoutVerificationUrl = document.getElementById('row-hosted-checkout-verification-url');
@@ -4063,6 +4070,15 @@ function collectSettingsPayload() {
     codex2apiAdminKey: inputCodex2ApiAdminKey.value.trim(),
     plusModeEnabled: fixedPlusModeEnabled,
     plusPaymentMethod,
+    plusCheckoutCloudConversionEnabled: typeof selectPlusCheckoutConversionMode !== 'undefined' && selectPlusCheckoutConversionMode
+      ? String(selectPlusCheckoutConversionMode.value || '').trim().toLowerCase() === 'cloud'
+      : Boolean(latestState?.plusCheckoutCloudConversionEnabled),
+    plusCheckoutCloudConversionApiUrl: typeof inputPlusCheckoutCloudApiUrl !== 'undefined' && inputPlusCheckoutCloudApiUrl
+      ? String(inputPlusCheckoutCloudApiUrl.value || '').trim()
+      : String(latestState?.plusCheckoutCloudConversionApiUrl || '').trim(),
+    plusCheckoutCloudConversionApiKey: typeof inputPlusCheckoutCloudApiKey !== 'undefined' && inputPlusCheckoutCloudApiKey
+      ? String(inputPlusCheckoutCloudApiKey.value || '').trim()
+      : String(latestState?.plusCheckoutCloudConversionApiKey || '').trim(),
     paypalEmail: String(currentPayPalAccount?.email || latestState?.paypalEmail || '').trim(),
     paypalPassword: String(currentPayPalAccount?.password || latestState?.paypalPassword || ''),
     currentPayPalAccountId: String(latestState?.currentPayPalAccountId || '').trim(),
@@ -8508,6 +8524,24 @@ function updatePlusModeUI() {
     }
     row.style.display = enabled ? '' : 'none';
   });
+  const cloudConversionVisible = enabled && (selectedMethod === paypalValue || selectedMethod === gopayValue);
+  const cloudConversionMode = (typeof selectPlusCheckoutConversionMode !== 'undefined' && selectPlusCheckoutConversionMode)
+    ? String(selectPlusCheckoutConversionMode.value || '').trim().toLowerCase()
+    : 'direct';
+  if (typeof rowPlusCheckoutConversionMode !== 'undefined' && rowPlusCheckoutConversionMode) {
+    rowPlusCheckoutConversionMode.style.display = cloudConversionVisible ? '' : 'none';
+  }
+  if (typeof rowPlusCheckoutCloudApiUrl !== 'undefined' && rowPlusCheckoutCloudApiUrl) {
+    rowPlusCheckoutCloudApiUrl.style.display = cloudConversionVisible && cloudConversionMode === 'cloud' ? '' : 'none';
+  }
+  if (typeof rowPlusCheckoutCloudApiKey !== 'undefined' && rowPlusCheckoutCloudApiKey) {
+    rowPlusCheckoutCloudApiKey.style.display = cloudConversionVisible && cloudConversionMode === 'cloud' ? '' : 'none';
+  }
+  if (typeof plusCheckoutConversionModeCaption !== 'undefined' && plusCheckoutConversionModeCaption) {
+    plusCheckoutConversionModeCaption.textContent = cloudConversionMode === 'cloud'
+      ? '通过本地/远程 checkout-converter 服务生成订阅链接'
+      : '扩展内直连 ChatGPT 后端生成订阅链接';
+  }
   [
     typeof rowPlusHostedCheckoutOauthDelay !== 'undefined' ? rowPlusHostedCheckoutOauthDelay : null,
     typeof rowHostedCheckoutVerificationUrl !== 'undefined' ? rowHostedCheckoutVerificationUrl : null,
@@ -9473,6 +9507,15 @@ function applySettingsState(state) {
   }
   if (typeof selectPlusPaymentMethod !== 'undefined' && selectPlusPaymentMethod) {
     selectPlusPaymentMethod.value = normalizePlusPaymentMethod(state?.plusPaymentMethod);
+  }
+  if (typeof selectPlusCheckoutConversionMode !== 'undefined' && selectPlusCheckoutConversionMode) {
+    selectPlusCheckoutConversionMode.value = state?.plusCheckoutCloudConversionEnabled ? 'cloud' : 'direct';
+  }
+  if (typeof inputPlusCheckoutCloudApiUrl !== 'undefined' && inputPlusCheckoutCloudApiUrl) {
+    inputPlusCheckoutCloudApiUrl.value = String(state?.plusCheckoutCloudConversionApiUrl || '').trim();
+  }
+  if (typeof inputPlusCheckoutCloudApiKey !== 'undefined' && inputPlusCheckoutCloudApiKey) {
+    inputPlusCheckoutCloudApiKey.value = String(state?.plusCheckoutCloudConversionApiKey || '').trim();
   }
   if (typeof inputGpcHelperApi !== 'undefined' && inputGpcHelperApi) {
     const defaultGpcHelperApiUrl = typeof DEFAULT_GPC_HELPER_API_URL !== 'undefined'
@@ -13760,6 +13803,22 @@ selectPlusPaymentMethod?.addEventListener('change', () => {
   saveSettings({ silent: true }).catch(() => { });
 });
 
+selectPlusCheckoutConversionMode?.addEventListener('change', () => {
+  updatePlusModeUI();
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+inputPlusCheckoutCloudApiUrl?.addEventListener('change', () => {
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
+inputPlusCheckoutCloudApiKey?.addEventListener('change', () => {
+  markSettingsDirty(true);
+  saveSettings({ silent: true }).catch(() => { });
+});
+
 [
   inputGpcHelperApi,
   inputGpcHelperCardKey,
@@ -15919,6 +15978,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (message.payload.plusPaymentMethod !== undefined && selectPlusPaymentMethod) {
         selectPlusPaymentMethod.value = normalizePlusPaymentMethod(message.payload.plusPaymentMethod);
       }
+      if (message.payload.plusCheckoutCloudConversionEnabled !== undefined && selectPlusCheckoutConversionMode) {
+        selectPlusCheckoutConversionMode.value = message.payload.plusCheckoutCloudConversionEnabled ? 'cloud' : 'direct';
+      }
+      if (message.payload.plusCheckoutCloudConversionApiUrl !== undefined && inputPlusCheckoutCloudApiUrl) {
+        inputPlusCheckoutCloudApiUrl.value = String(message.payload.plusCheckoutCloudConversionApiUrl || '').trim();
+      }
+      if (message.payload.plusCheckoutCloudConversionApiKey !== undefined && inputPlusCheckoutCloudApiKey) {
+        inputPlusCheckoutCloudApiKey.value = String(message.payload.plusCheckoutCloudConversionApiKey || '').trim();
+      }
       if (message.payload.gopayHelperPhoneMode !== undefined && selectGpcHelperPhoneMode) {
         selectGpcHelperPhoneMode.value = normalizeGpcHelperPhoneModeValue(message.payload.gopayHelperPhoneMode);
       }
@@ -15943,6 +16011,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (
         message.payload.plusModeEnabled !== undefined
         || message.payload.plusPaymentMethod !== undefined
+        || message.payload.plusCheckoutCloudConversionEnabled !== undefined
+        || message.payload.plusCheckoutCloudConversionApiUrl !== undefined
+        || message.payload.plusCheckoutCloudConversionApiKey !== undefined
         || message.payload.gopayHelperPhoneMode !== undefined
         || message.payload.gopayHelperAutoModeEnabled !== undefined
         || message.payload.gopayHelperOtpChannel !== undefined

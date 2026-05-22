@@ -90,6 +90,44 @@
         && state?.plusHostedCheckoutIsFinalStep !== false;
     }
 
+    function normalizePlusCheckoutCloudConversionApiUrl(value = '') {
+      const rawValue = String(value || '').trim();
+      if (!rawValue) {
+        return '';
+      }
+      try {
+        const parsed = new URL(rawValue);
+        parsed.hash = '';
+        return parsed.toString();
+      } catch {
+        return rawValue;
+      }
+    }
+
+    function isPlusCheckoutCloudConversionEnabled(state = {}, paymentMethod = PLUS_PAYMENT_METHOD_PAYPAL) {
+      const normalized = normalizePlusPaymentMethod(paymentMethod);
+      if (normalized !== PLUS_PAYMENT_METHOD_PAYPAL && normalized !== PLUS_PAYMENT_METHOD_GOPAY) {
+        return false;
+      }
+      return Boolean(state?.plusCheckoutCloudConversionEnabled);
+    }
+
+    function getCheckoutBillingDetailsForPaymentMethod(paymentMethod = PLUS_PAYMENT_METHOD_PAYPAL) {
+      return normalizePlusPaymentMethod(paymentMethod) === PLUS_PAYMENT_METHOD_GOPAY
+        ? { country: 'ID', currency: 'IDR' }
+        : { country: 'US', currency: 'USD' };
+    }
+
+    function formatCloudCheckoutErrorDetail(value, fallback = '') {
+      if (typeof value === 'string') {
+        return value.trim() || fallback;
+      }
+      if (value && typeof value === 'object') {
+        return String(value.message || value.detail || value.error || JSON.stringify(value)).trim() || fallback;
+      }
+      return String(value ?? fallback).trim() || fallback;
+    }
+
     function isCheckoutReadyUrl(url = '') {
       return CHECKOUT_READY_URL_PATTERN.test(String(url || ''));
     }
@@ -1162,6 +1200,77 @@
       });
     }
 
+    async function generateCloudCheckoutFromApi(accessToken = '', paymentMethod = PLUS_PAYMENT_METHOD_PAYPAL, state = {}) {
+      const token = String(accessToken || '').trim();
+      if (!token) {
+        throw new Error('步骤 6：云端支付转换缺少 accessToken。');
+      }
+
+      const apiUrl = normalizePlusCheckoutCloudConversionApiUrl(state?.plusCheckoutCloudConversionApiUrl || '');
+      if (!apiUrl) {
+        throw new Error('步骤 6：已启用云端支付转换，但未配置云端服务地址。');
+      }
+      try {
+        const parsed = new URL(apiUrl);
+        if (!/^https?:$/i.test(String(parsed.protocol || ''))) {
+          throw new Error('unsupported protocol');
+        }
+      } catch {
+        throw new Error('步骤 6：云端支付转换服务地址不是有效的 HTTP/HTTPS URL。');
+      }
+
+      const billingDetails = getCheckoutBillingDetailsForPaymentMethod(paymentMethod);
+      const headers = {
+        Accept: 'application/json',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Content-Type': 'application/json',
+      };
+      const apiKey = String(state?.plusCheckoutCloudConversionApiKey || '').trim();
+      if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+      }
+
+      const { response, data } = await fetchJsonWithTimeout(apiUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          accessToken: token,
+          paymentMethod: normalizePlusPaymentMethod(paymentMethod),
+          country: billingDetails.country,
+          currency: billingDetails.currency,
+        }),
+      }, 45000);
+
+      const targetCheckoutUrl = String(
+        data?.preferredCheckoutUrl
+        || data?.hostedCheckoutUrl
+        || data?.convertedCheckoutUrl
+        || data?.chatgptCheckoutUrl
+        || data?.checkoutUrl
+        || ''
+      ).trim();
+      if (!response?.ok || !targetCheckoutUrl) {
+        const detail = formatCloudCheckoutErrorDetail(
+          data?.detail || data?.message || data?.error,
+          `HTTP ${response?.status || 0}`
+        );
+        throw new Error(`步骤 6：云端支付转换失败：${detail}`);
+      }
+
+      return {
+        checkoutUrl: String(data?.checkoutUrl || '').trim(),
+        chatgptCheckoutUrl: String(data?.chatgptCheckoutUrl || '').trim(),
+        checkoutSessionId: String(data?.checkoutSessionId || '').trim(),
+        processorEntity: String(data?.processorEntity || '').trim(),
+        hostedCheckoutUrl: String(data?.hostedCheckoutUrl || '').trim(),
+        convertedCheckoutUrl: String(data?.chatgptCheckoutUrl || data?.convertedCheckoutUrl || '').trim(),
+        preferredCheckoutUrl: targetCheckoutUrl,
+        country: String(data?.country || billingDetails.country).trim() || billingDetails.country,
+        currency: String(data?.currency || billingDetails.currency).trim() || billingDetails.currency,
+        checkoutSource: 'cloud-converted-checkout',
+      };
+    }
+
     async function executePlusCheckoutCreate(state = {}) {
       const paymentMethod = normalizePlusPaymentMethod(state?.plusPaymentMethod);
       if (paymentMethod === PLUS_PAYMENT_METHOD_GPC_HELPER) {
@@ -1182,20 +1291,31 @@
         logMessage: '步骤 6：正在等待 ChatGPT 页面完成加载，再继续创建订阅页...',
       });
 
-      await addLog(
-        paymentMethod === PLUS_PAYMENT_METHOD_PAYPAL
-          ? '步骤 6：正在由扩展内部直连生成美国 US Stripe/外部支付链接...'
-          : `步骤 6：正在由扩展内部创建${checkoutModeLabel}...`,
-        'info'
-      );
-      const result = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
-        type: 'CREATE_PLUS_CHECKOUT',
-        source: 'background',
-        payload: { paymentMethod },
-      });
+      const useCloudCheckoutConversion = isPlusCheckoutCloudConversionEnabled(state, paymentMethod);
+      let result = null;
+      if (useCloudCheckoutConversion) {
+        await addLog('步骤 6：已启用云端支付转换，正在读取 accessToken 并请求云端服务生成订阅链接...', 'info');
+        const accessToken = await readAccessTokenFromChatGptSessionTab(tabId);
+        if (!accessToken) {
+          throw new Error('步骤 6：云端支付转换未获取到可用 accessToken。');
+        }
+        result = await generateCloudCheckoutFromApi(accessToken, paymentMethod, state);
+      } else {
+        await addLog(
+          paymentMethod === PLUS_PAYMENT_METHOD_PAYPAL
+            ? '步骤 6：正在由扩展内部直连生成美国 US Stripe/外部支付链接...'
+            : `步骤 6：正在由扩展内部创建${checkoutModeLabel}...`,
+          'info'
+        );
+        result = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
+          type: 'CREATE_PLUS_CHECKOUT',
+          source: 'background',
+          payload: { paymentMethod },
+        });
 
-      if (result?.error) {
-        throw new Error(result.error);
+        if (result?.error) {
+          throw new Error(result.error);
+        }
       }
       const targetCheckoutUrl = String(
         result?.preferredCheckoutUrl
@@ -1231,9 +1351,10 @@
         plusCheckoutCountry: result.country || 'DE',
         plusCheckoutCurrency: result.currency || 'EUR',
         plusReturnUrl: '',
-        plusCheckoutSource: targetCheckoutUrl === String(result?.convertedCheckoutUrl || '').trim()
-          ? 'converted-chatgpt-checkout'
-          : '',
+        plusCheckoutSource: result?.checkoutSource
+          || (targetCheckoutUrl === String(result?.convertedCheckoutUrl || '').trim()
+            ? 'converted-chatgpt-checkout'
+            : ''),
       });
 
       await addLog(`步骤 6：Plus Checkout 页面已就绪（${paymentMethodLabel} / ${result.country || 'DE'} ${result.currency || 'EUR'}），准备继续下一步。`, 'info');

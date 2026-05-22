@@ -300,6 +300,34 @@
           <span class="setting-caption" id="plus-payment-method-caption">PayPal 订阅链路</span>
         </div>
       </div>
+      <div class="data-row" id="row-plus-checkout-conversion-mode" style="display:none;">
+        <span class="data-label">Checkout 方式</span>
+        <div class="data-inline">
+          <select id="select-plus-checkout-conversion-mode" class="data-select">
+            <option value="direct">直连（扩展内部生成）</option>
+            <option value="cloud">云端转换</option>
+          </select>
+          <span class="setting-caption" id="plus-checkout-conversion-mode-caption">扩展内直连 ChatGPT 后端生成订阅链接</span>
+        </div>
+      </div>
+      <div class="data-row" id="row-plus-checkout-cloud-api-url" style="display:none;">
+        <span class="data-label">云端地址</span>
+        <input type="text" id="input-plus-checkout-cloud-api-url" class="data-input"
+          placeholder="http://127.0.0.1:8080/api/checkout"
+          title="云端 checkout-converter 服务地址，包含完整 /api/checkout 路径" />
+      </div>
+      <div class="data-row" id="row-plus-checkout-cloud-api-key" style="display:none;">
+        <span class="data-label">云端 API Key</span>
+        <div class="data-inline">
+          <div class="input-with-icon">
+            <input type="password" id="input-plus-checkout-cloud-api-key" class="data-input data-input-with-icon"
+              placeholder="云端服务 API Key（可留空）" autocomplete="off" />
+            <button id="btn-toggle-plus-checkout-cloud-api-key" class="input-icon-btn" type="button"
+              data-password-toggle="input-plus-checkout-cloud-api-key" data-show-label="显示 API Key"
+              data-hide-label="隐藏 API Key" aria-label="显示 API Key" title="显示 API Key"></button>
+          </div>
+        </div>
+      </div>
       <div class="data-row" id="row-paypal-account" style="display:none;">
         <span class="data-label">PayPal 账号</span>
         <div class="data-inline">

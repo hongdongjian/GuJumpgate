@@ -913,6 +913,9 @@ const PERSISTED_SETTING_DEFAULTS = {
   customPassword: '',
   plusModeEnabled: true,
   plusPaymentMethod: DEFAULT_PLUS_PAYMENT_METHOD,
+  plusCheckoutCloudConversionEnabled: false,
+  plusCheckoutCloudConversionApiUrl: 'http://127.0.0.1:8080/api/checkout',
+  plusCheckoutCloudConversionApiKey: '',
   plusHostedCheckoutOauthDelaySeconds: 10,
   hostedCheckoutVerificationPopupDelaySeconds: 20,
   hostedCheckoutVerificationUrl: 'https://mail.test.com/api/text-relay/eca_tr_xxxxxxxxx',
@@ -2921,6 +2924,12 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeSignupMethod(value);
     case 'plusPaymentMethod':
       return normalizePlusPaymentMethod(value);
+    case 'plusCheckoutCloudConversionEnabled':
+      return Boolean(value);
+    case 'plusCheckoutCloudConversionApiUrl':
+      return String(value || '').trim();
+    case 'plusCheckoutCloudConversionApiKey':
+      return String(value || '').trim();
     case 'plusHostedCheckoutOauthDelaySeconds':
       return normalizePlusHostedCheckoutOauthDelaySeconds(
         value,
