@@ -196,9 +196,12 @@ return { refillPayPalEmailInput, submitPayPalLogin };
   );
 }
 
-function loadHostedStageApi({ elements = [], locationOverride = {} } = {}) {
+function loadHostedStageApi({ elements = [], locationOverride = {}, bodyText = '' } = {}) {
   const document = {
     documentElement: {},
+    body: {
+      innerText: bodyText,
+    },
     getElementById(id) {
       return elements.find((el) => el.id === id) || null;
     },
@@ -234,6 +237,7 @@ const PAYPAL_HOSTED_STAGE_GUEST_CHECKOUT = 'guest_checkout';
 const PAYPAL_HOSTED_STAGE_VERIFICATION = 'verification';
 const PAYPAL_HOSTED_STAGE_REVIEW = 'review_consent';
 const PAYPAL_HOSTED_STAGE_APPROVAL = 'approval';
+const PAYPAL_HOSTED_STAGE_DEAD_END = 'dead_end';
 const PAYPAL_HOSTED_STAGE_UNKNOWN = 'unknown';
 ${extractFunction('isVisibleElement')}
 ${extractFunction('normalizeText')}
@@ -249,6 +253,7 @@ ${extractFunction('isPayPalHostedReviewPage')}
 ${extractFunction('findHostedVerificationInputs')}
 ${extractFunction('hasHostedVerificationInputs')}
 ${extractFunction('findHostedReviewConsentButton')}
+${extractFunction('isPayPalHostedDeadEndPage')}
 ${extractFunction('detectPayPalHostedCheckoutStage')}
 return {
   detectPayPalHostedCheckoutStage,
@@ -291,6 +296,9 @@ return { fillHostedVerificationCode };
 function createHostedReviewApi(overrides = {}) {
   const bindings = {
     PAYPAL_HOSTED_STAGE_REVIEW: 'review_consent',
+    PAYPAL_HOSTED_STAGE_DEAD_END: 'dead_end',
+    isPayPalHostedDeadEndPage: () => false,
+    hasHostedReviewConsentSubmitted: () => false,
     waitForDocumentComplete: async () => {},
     isPayPalHostedReviewPage: () => true,
     detectPayPalHostedCheckoutStage: () => 'unknown',
@@ -300,6 +308,9 @@ function createHostedReviewApi(overrides = {}) {
 
   return new Function(
     'PAYPAL_HOSTED_STAGE_REVIEW',
+    'PAYPAL_HOSTED_STAGE_DEAD_END',
+    'isPayPalHostedDeadEndPage',
+    'hasHostedReviewConsentSubmitted',
     'waitForDocumentComplete',
     'isPayPalHostedReviewPage',
     'detectPayPalHostedCheckoutStage',
@@ -310,6 +321,9 @@ return { runHostedCheckoutStep };
 `
   )(
     bindings.PAYPAL_HOSTED_STAGE_REVIEW,
+    bindings.PAYPAL_HOSTED_STAGE_DEAD_END,
+    bindings.isPayPalHostedDeadEndPage,
+    bindings.hasHostedReviewConsentSubmitted,
     bindings.waitForDocumentComplete,
     bindings.isPayPalHostedReviewPage,
     bindings.detectPayPalHostedCheckoutStage,
@@ -469,6 +483,18 @@ test('PayPal checkoutweb signup stays in guest checkout stage even when consent 
   assert.equal(api.detectPayPalHostedCheckoutStage(), 'guest_checkout');
 });
 
+test('PayPal hosted dead-end text is detected on Hermes page', () => {
+  const api = loadHostedStageApi({
+    bodyText: 'PayPal Things don’t appear to be working at the moment. Policies Terms Privacy',
+    locationOverride: {
+      pathname: '/webapps/hermes',
+      href: 'https://www.paypal.com/webapps/hermes?token=demo',
+    },
+  });
+
+  assert.equal(api.detectPayPalHostedCheckoutStage(), 'dead_end');
+});
+
 test('PayPal hosted checkout verification filler writes six digits into split inputs', async () => {
   const inputs = Array.from({ length: 6 }, (_, index) => createElement({
     tag: 'input',
@@ -521,4 +547,30 @@ test('PayPal hosted review path bypasses generic stage detection and directly ru
 
   assert.deepEqual(calls, ['review']);
   assert.deepEqual(result, { stage: 'review_consent', submitted: true });
+});
+
+test('PayPal hosted dead-end step does not run Hermes review handler', async () => {
+  const calls = [];
+  const api = createHostedReviewApi({
+    isPayPalHostedDeadEndPage: () => true,
+    hasHostedReviewConsentSubmitted: () => true,
+    isPayPalHostedReviewPage: () => true,
+    detectPayPalHostedCheckoutStage: () => {
+      calls.push('detect');
+      return 'review_consent';
+    },
+    clickHostedReviewConsent: async () => {
+      calls.push('review');
+      return { stage: 'review_consent', submitted: true };
+    },
+  });
+
+  const result = await api.runHostedCheckoutStep({});
+
+  assert.deepEqual(calls, []);
+  assert.deepEqual(result, {
+    stage: 'dead_end',
+    submitted: false,
+    hostedReviewConsentSubmitted: true,
+  });
 });

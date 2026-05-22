@@ -19,6 +19,7 @@
   const HOSTED_CHECKOUT_TRANSITION_TIMEOUT_MS = 120000;
   const HOSTED_CHECKOUT_SUCCESS_WAIT_TIMEOUT_MS = 180000;
   const HOSTED_CHECKOUT_PAYPAL_LOOP_TIMEOUT_MS = 10 * 60 * 1000;
+  const HOSTED_CHECKOUT_PAYPAL_GUEST_RESUBMIT_COOLDOWN_MS = 45000;
   const HOSTED_CHECKOUT_VERIFICATION_POLL_ATTEMPTS = 12;
   const HOSTED_CHECKOUT_VERIFICATION_POLL_INTERVAL_MS = 5000;
   const HOSTED_CHECKOUT_VERIFICATION_POPUP_DELAY_MIN_SECONDS = 0;
@@ -605,6 +606,8 @@
 
     async function runHostedCheckoutPayPalFlow(tabId, guestProfile) {
       const startedAt = Date.now();
+      let finalConsentSubmitted = false;
+      let guestCheckoutSubmitAttemptAt = 0;
       while (Date.now() - startedAt < HOSTED_CHECKOUT_PAYPAL_LOOP_TIMEOUT_MS) {
         throwIfStopped();
         const tab = await chrome?.tabs?.get?.(tabId).catch(() => null);
@@ -626,14 +629,27 @@
           return;
         }
 
-        if (isPayPalHermesUrl(currentUrl)) {
-          await addLog(`步骤 6：检测到 PayPal Hermes 复核页（${currentUrl}），按油猴脚本方式直接等待并点击 Agree and Continue...`, 'info');
-          await runHostedCheckoutPayPalStep(tabId, {});
+        const pageState = await getHostedCheckoutPayPalState(tabId);
+        if (pageState.hostedDeadEndVisible || pageState.hostedStage === 'dead_end') {
+          if (finalConsentSubmitted || pageState.hostedReviewConsentSubmitted) {
+            await addLog(`步骤 6：PayPal 最终同意后出现死页（${currentUrl}），按已成功开通处理，进入下一步导出。`, 'warn');
+            return;
+          }
+          await addLog(`步骤 6：PayPal 出现死页（${currentUrl}），但尚未完成最终同意，继续等待页面恢复...`, 'warn');
           await sleepWithStop(1000);
           continue;
         }
 
-        const pageState = await getHostedCheckoutPayPalState(tabId);
+        if (isPayPalHermesUrl(currentUrl)) {
+          await addLog(`步骤 6：检测到 PayPal Hermes 复核页（${currentUrl}），按油猴脚本方式直接等待并点击 Agree and Continue...`, 'info');
+          const reviewResult = await runHostedCheckoutPayPalStep(tabId, {});
+          if (reviewResult?.submitted || reviewResult?.hostedReviewConsentSubmitted || reviewResult?.stage === 'dead_end') {
+            finalConsentSubmitted = true;
+          }
+          await sleepWithStop(1000);
+          continue;
+        }
+
         if (pageState.hostedStage === 'verification' && pageState.verificationInputsVisible) {
           await addLog('步骤 6：检测到 PayPal hosted checkout 验证码弹窗，正在获取并填写验证码...', 'info');
           await waitForHostedCheckoutVerificationPopupDelay();
@@ -655,6 +671,13 @@
         }
 
         if (pageState.hostedStage === 'guest_checkout') {
+          if (
+            guestCheckoutSubmitAttemptAt > 0
+            && Date.now() - guestCheckoutSubmitAttemptAt < HOSTED_CHECKOUT_PAYPAL_GUEST_RESUBMIT_COOLDOWN_MS
+          ) {
+            await sleepWithStop(1500);
+            continue;
+          }
           const runtimeConfig = await getHostedCheckoutRuntimeConfig();
           const configuredPhone = String(runtimeConfig?.phone || '').trim();
           await addLog(`步骤 6：当前 hosted checkout 电话配置为 ${configuredPhone || '(空，将回退默认值)'}。`, 'info');
@@ -667,13 +690,17 @@
             ...guestProfile,
             phone: String(runtimeConfig?.phone || guestProfile.phone || '').trim(),
           });
+          guestCheckoutSubmitAttemptAt = Date.now();
           await sleepWithStop(1500);
           continue;
         }
 
         if (pageState.hostedStage === 'review_consent') {
           await addLog('步骤 6：检测到 PayPal hosted checkout 账单确认页，正在点击继续...', 'info');
-          await runHostedCheckoutPayPalStep(tabId, {});
+          const reviewResult = await runHostedCheckoutPayPalStep(tabId, {});
+          if (reviewResult?.submitted || reviewResult?.hostedReviewConsentSubmitted || reviewResult?.stage === 'dead_end') {
+            finalConsentSubmitted = true;
+          }
           await sleepWithStop(1000);
           continue;
         }

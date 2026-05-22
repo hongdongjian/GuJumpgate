@@ -10,9 +10,11 @@ const PAYPAL_HOSTED_STAGE_GUEST_CHECKOUT = 'guest_checkout';
 const PAYPAL_HOSTED_STAGE_VERIFICATION = 'verification';
 const PAYPAL_HOSTED_STAGE_REVIEW = 'review_consent';
 const PAYPAL_HOSTED_STAGE_APPROVAL = 'approval';
+const PAYPAL_HOSTED_STAGE_DEAD_END = 'dead_end';
 const PAYPAL_HOSTED_STAGE_UNKNOWN = 'unknown';
 const PAYPAL_HOSTED_HERMES_AUTORUN_SENTINEL = '__MULTIPAGE_PAYPAL_HOSTED_HERMES_AUTORUN__';
 const PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL = '__MULTIPAGE_PAYPAL_HOSTED_GUEST_SUBMIT__';
+const PAYPAL_HOSTED_REVIEW_SUBMITTED_STORAGE_KEY = 'multipage_paypal_hosted_review_submitted';
 
 if (document.documentElement.getAttribute(PAYPAL_FLOW_LISTENER_SENTINEL) !== '1') {
   document.documentElement.setAttribute(PAYPAL_FLOW_LISTENER_SENTINEL, '1');
@@ -281,6 +283,33 @@ function findHostedReviewConsentButton() {
   ]);
 }
 
+function isPayPalHostedDeadEndPage() {
+  if (!/paypal\./i.test(String(location?.host || ''))) {
+    return false;
+  }
+  const bodyText = normalizeText(document?.body?.innerText || '');
+  if (!bodyText) {
+    return false;
+  }
+  return /Things\s+don['’]?t\s+appear\s+to\s+be\s+working/i.test(bodyText);
+}
+
+function markHostedReviewConsentSubmitted() {
+  try {
+    window.sessionStorage?.setItem?.(PAYPAL_HOSTED_REVIEW_SUBMITTED_STORAGE_KEY, '1');
+  } catch {
+    // Ignore storage failures on restricted PayPal documents.
+  }
+}
+
+function hasHostedReviewConsentSubmitted() {
+  try {
+    return window.sessionStorage?.getItem?.(PAYPAL_HOSTED_REVIEW_SUBMITTED_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 function detectPayPalHostedCheckoutStage() {
   if (!/paypal\./i.test(String(location?.host || ''))) {
     return PAYPAL_HOSTED_STAGE_OUTSIDE;
@@ -299,6 +328,9 @@ function detectPayPalHostedCheckoutStage() {
   }
   if (Boolean(findApproveButton())) {
     return PAYPAL_HOSTED_STAGE_APPROVAL;
+  }
+  if (isPayPalHostedDeadEndPage()) {
+    return PAYPAL_HOSTED_STAGE_DEAD_END;
   }
   return PAYPAL_HOSTED_STAGE_UNKNOWN;
 }
@@ -455,6 +487,7 @@ function dispatchHostedGenericClick(button) {
 }
 
 async function clickHostedGenericSubmitButton(retries = 0) {
+  throwIfStopped();
   removeHostedCaptchaArtifacts();
   const button = findHostedGuestSubmitButton() || findEmailNextButton() || findLoginNextButton();
   if (!button) {
@@ -485,6 +518,7 @@ async function clickHostedGenericSubmitButton(retries = 0) {
 
   dispatchHostedGenericClick(button);
   await sleep(1000);
+  throwIfStopped();
   removeHostedCaptchaArtifacts();
 
   if (hasHostedVerificationInputs()) {
@@ -571,6 +605,17 @@ async function fillHostedVerificationCode(payload = {}) {
 
 async function fillHostedGuestCheckout(payload = {}) {
   await waitForDocumentComplete();
+  throwIfStopped();
+  const rootScope = typeof window !== 'undefined' ? window : globalThis;
+  if (rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL]) {
+    return {
+      stage: PAYPAL_HOSTED_STAGE_GUEST_CHECKOUT,
+      submitted: false,
+      verificationRequired: Boolean(hasHostedVerificationInputs()),
+      submitScheduled: true,
+      submitAlreadyScheduled: true,
+    };
+  }
   startHostedCaptchaCleanupObserver();
   removeHostedCaptchaArtifacts();
   log(`PayPal guest checkout：收到 payload.phone=${String(payload?.phone || '').trim() || '(空)'}，payload.address=${JSON.stringify(payload?.address || {})}`, 'info');
@@ -612,11 +657,25 @@ async function fillHostedGuestCheckout(payload = {}) {
   fillHostedInputById('billingLine1', address.street || '');
   selectHostedOptionByIdText('billingState', address.state || '');
 
-  const rootScope = typeof window !== 'undefined' ? window : globalThis;
   if (!rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL]) {
     rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = true;
     setTimeout(() => {
+      if (typeof throwIfStopped === 'function') {
+        try {
+          throwIfStopped();
+        } catch (error) {
+          rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
+          if (!isStopError(error)) {
+            log(`PayPal hosted checkout guest submit 失败：${error?.message || error}`, 'warn');
+          }
+          return;
+        }
+      }
       clickHostedGenericSubmitButton(0).catch((error) => {
+        if (isStopError(error)) {
+          return;
+        }
+        rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
         log(`PayPal hosted checkout guest submit 失败：${error?.message || error}`, 'warn');
       }).finally(() => {
         rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
@@ -645,10 +704,12 @@ async function clickHostedReviewConsent() {
         || document.querySelector('button[data-testid="consentButton"]');
       if (button) {
         log('PayPal Hermes：已找到 consentButton，准备点击 Agree and Continue。', 'info');
+        markHostedReviewConsentSubmitted();
         button.click();
         return {
           stage: PAYPAL_HOSTED_STAGE_REVIEW,
           submitted: true,
+          hostedReviewConsentSubmitted: true,
         };
       }
       log('PayPal Hermes：首次未找到 consentButton，2 秒后重试一次。', 'warn');
@@ -656,10 +717,12 @@ async function clickHostedReviewConsent() {
       button = document.getElementById('consentButton');
       if (button) {
         log('PayPal Hermes：重试后找到 consentButton，准备点击 Agree and Continue。', 'info');
+        markHostedReviewConsentSubmitted();
         button.click();
         return {
           stage: PAYPAL_HOSTED_STAGE_REVIEW,
           submitted: true,
+          hostedReviewConsentSubmitted: true,
         };
       }
       log('PayPal Hermes：重试后仍未找到 consentButton。', 'warn');
@@ -675,6 +738,13 @@ async function clickHostedReviewConsent() {
 }
 
 async function runHostedCheckoutStep(payload = {}) {
+  if (isPayPalHostedDeadEndPage()) {
+    return {
+      stage: PAYPAL_HOSTED_STAGE_DEAD_END,
+      submitted: false,
+      hostedReviewConsentSubmitted: hasHostedReviewConsentSubmitted(),
+    };
+  }
   if (isPayPalHostedReviewPage()) {
     return clickHostedReviewConsent();
   }
@@ -707,6 +777,9 @@ async function runHostedCheckoutStep(payload = {}) {
 function shouldAutoRunHostedHermesReview() {
   const rootScope = typeof window !== 'undefined' ? window : globalThis;
   if (!isPayPalHostedReviewPage()) {
+    return false;
+  }
+  if (isPayPalHostedDeadEndPage()) {
     return false;
   }
   if (rootScope[PAYPAL_HOSTED_HERMES_AUTORUN_SENTINEL]) {
@@ -950,6 +1023,8 @@ function inspectPayPalState() {
     approveReady: Boolean(approveButton && isEnabledControl(approveButton)),
     approveButtonText: approveButton ? getActionText(approveButton) : '',
     hasPasskeyPrompt: hasPasskeyPrompt(),
+    hostedDeadEndVisible: hostedStage === PAYPAL_HOSTED_STAGE_DEAD_END || isPayPalHostedDeadEndPage(),
+    hostedReviewConsentSubmitted: hasHostedReviewConsentSubmitted(),
     bodyTextPreview: normalizeText(document.body?.innerText || '').slice(0, 240),
   };
 }

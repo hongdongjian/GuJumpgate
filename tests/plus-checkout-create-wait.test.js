@@ -465,6 +465,263 @@ test('hosted checkout automation completes plus-checkout-create after success pa
   });
 });
 
+test('hosted checkout automation treats PayPal dead-end after Hermes review as completed', async () => {
+  const events = [];
+  let tabUrl = 'https://pay.openai.com/c/pay/hosted_cs_live_final';
+  let paypalStateCalls = 0;
+  const executor = api.createPlusCheckoutCreateExecutor({
+    addLog: async (message, level = 'info') => {
+      events.push({ type: 'log', message, level });
+    },
+    chrome: {
+      tabs: {
+        create: async () => ({ id: 80 }),
+        update: async (_tabId, payload) => {
+          if (payload?.url) {
+            tabUrl = payload.url;
+          }
+        },
+        get: async () => ({ id: 80, url: tabUrl }),
+      },
+    },
+    completeNodeFromBackground: async (step, payload) => {
+      events.push({ type: 'complete', step, payload });
+    },
+    enableHostedCheckoutAutomation: true,
+    ensureContentScriptReadyOnTabUntilStopped: async () => {},
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({
+        address: {
+          Address: '123 Main St',
+          City: 'New York',
+          State_Full: 'New York',
+          Zip_Code: '10001',
+        },
+      }),
+    }),
+    registerTab: async () => {},
+    sendTabMessageUntilStopped: async (_tabId, source, message) => {
+      if (message.type === 'CREATE_PLUS_CHECKOUT') {
+        return {
+          checkoutUrl: 'https://chatgpt.com/checkout/openai_ie/cs_live_final',
+          hostedCheckoutUrl: 'https://pay.openai.com/c/pay/hosted_cs_live_final',
+          preferredCheckoutUrl: 'https://pay.openai.com/c/pay/hosted_cs_live_final',
+          country: 'US',
+          currency: 'USD',
+        };
+      }
+      if (source === 'plus-checkout' && message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP') {
+        tabUrl = 'https://www.paypal.com/webapps/hermes?token=review';
+        return {};
+      }
+      if (source === 'paypal-flow' && message.type === 'PAYPAL_HOSTED_GET_STATE') {
+        paypalStateCalls += 1;
+        return paypalStateCalls === 1
+          ? { hostedStage: 'review_consent', hostedDeadEndVisible: false }
+          : { hostedStage: 'dead_end', hostedDeadEndVisible: true };
+      }
+      if (source === 'paypal-flow' && message.type === 'PAYPAL_RUN_HOSTED_CHECKOUT_STEP') {
+        tabUrl = 'https://www.paypal.com/webapps/hermes?token=dead';
+        return { stage: 'review_consent', submitted: true };
+      }
+      return {};
+    },
+    setState: async () => {},
+    sleepWithStop: async () => {},
+    waitForTabCompleteUntilStopped: async () => {},
+    waitForTabUrlMatchUntilStopped: async (_tabId, matcher) => {
+      if (matcher(tabUrl, { id: 80, url: tabUrl })) {
+        return { id: 80, url: tabUrl };
+      }
+      return null;
+    },
+  });
+
+  await executor.executePlusCheckoutCreate({
+    plusModeEnabled: true,
+    plusPaymentMethod: 'paypal',
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepStrictEqual(events.find((event) => event.type === 'complete'), {
+    type: 'complete',
+    step: 'plus-checkout-create',
+    payload: {
+      plusCheckoutCountry: 'US',
+      plusCheckoutCurrency: 'USD',
+    },
+  });
+  assert.equal(events.some((event) => event.type === 'log' && /最终同意后出现死页/.test(event.message)), true);
+});
+
+test('hosted checkout automation treats PayPal dead-end with stored review marker as completed', async () => {
+  const events = [];
+  let tabUrl = 'https://pay.openai.com/c/pay/hosted_cs_live_final';
+  const executor = api.createPlusCheckoutCreateExecutor({
+    addLog: async (message, level = 'info') => {
+      events.push({ type: 'log', message, level });
+    },
+    chrome: {
+      tabs: {
+        create: async () => ({ id: 82 }),
+        update: async (_tabId, payload) => {
+          if (payload?.url) {
+            tabUrl = payload.url;
+          }
+        },
+        get: async () => ({ id: 82, url: tabUrl }),
+      },
+    },
+    completeNodeFromBackground: async (step, payload) => {
+      events.push({ type: 'complete', step, payload });
+    },
+    enableHostedCheckoutAutomation: true,
+    ensureContentScriptReadyOnTabUntilStopped: async () => {},
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({
+        address: {
+          Address: '123 Main St',
+          City: 'New York',
+          State_Full: 'New York',
+          Zip_Code: '10001',
+        },
+      }),
+    }),
+    registerTab: async () => {},
+    sendTabMessageUntilStopped: async (_tabId, source, message) => {
+      if (message.type === 'CREATE_PLUS_CHECKOUT') {
+        return {
+          checkoutUrl: 'https://chatgpt.com/checkout/openai_ie/cs_live_final',
+          hostedCheckoutUrl: 'https://pay.openai.com/c/pay/hosted_cs_live_final',
+          preferredCheckoutUrl: 'https://pay.openai.com/c/pay/hosted_cs_live_final',
+          country: 'US',
+          currency: 'USD',
+        };
+      }
+      if (source === 'plus-checkout' && message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP') {
+        tabUrl = 'https://www.paypal.com/webapps/hermes?token=dead';
+        return {};
+      }
+      if (source === 'paypal-flow' && message.type === 'PAYPAL_HOSTED_GET_STATE') {
+        return {
+          hostedStage: 'dead_end',
+          hostedDeadEndVisible: true,
+          hostedReviewConsentSubmitted: true,
+        };
+      }
+      return {};
+    },
+    setState: async () => {},
+    sleepWithStop: async () => {},
+    waitForTabCompleteUntilStopped: async () => {},
+    waitForTabUrlMatchUntilStopped: async (_tabId, matcher) => {
+      if (matcher(tabUrl, { id: 82, url: tabUrl })) {
+        return { id: 82, url: tabUrl };
+      }
+      return null;
+    },
+  });
+
+  await executor.executePlusCheckoutCreate({
+    plusModeEnabled: true,
+    plusPaymentMethod: 'paypal',
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepStrictEqual(events.find((event) => event.type === 'complete'), {
+    type: 'complete',
+    step: 'plus-checkout-create',
+    payload: {
+      plusCheckoutCountry: 'US',
+      plusCheckoutCurrency: 'USD',
+    },
+  });
+});
+
+test('hosted checkout automation does not complete PayPal dead-end before final consent', async () => {
+  const events = [];
+  let tabUrl = 'https://pay.openai.com/c/pay/hosted_cs_live_final';
+  let sleepCalls = 0;
+  const executor = api.createPlusCheckoutCreateExecutor({
+    addLog: async (message, level = 'info') => {
+      events.push({ type: 'log', message, level });
+    },
+    chrome: {
+      tabs: {
+        create: async () => ({ id: 81 }),
+        update: async (_tabId, payload) => {
+          if (payload?.url) {
+            tabUrl = payload.url;
+          }
+        },
+        get: async () => ({ id: 81, url: tabUrl }),
+      },
+    },
+    completeNodeFromBackground: async (step, payload) => {
+      events.push({ type: 'complete', step, payload });
+    },
+    enableHostedCheckoutAutomation: true,
+    ensureContentScriptReadyOnTabUntilStopped: async () => {},
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({
+        address: {
+          Address: '123 Main St',
+          City: 'New York',
+          State_Full: 'New York',
+          Zip_Code: '10001',
+        },
+      }),
+    }),
+    registerTab: async () => {},
+    sendTabMessageUntilStopped: async (_tabId, source, message) => {
+      if (message.type === 'CREATE_PLUS_CHECKOUT') {
+        return {
+          checkoutUrl: 'https://chatgpt.com/checkout/openai_ie/cs_live_final',
+          hostedCheckoutUrl: 'https://pay.openai.com/c/pay/hosted_cs_live_final',
+          preferredCheckoutUrl: 'https://pay.openai.com/c/pay/hosted_cs_live_final',
+          country: 'US',
+          currency: 'USD',
+        };
+      }
+      if (source === 'plus-checkout' && message.type === 'RUN_HOSTED_OPENAI_CHECKOUT_STEP') {
+        tabUrl = 'https://www.paypal.com/checkoutweb/dead';
+        return {};
+      }
+      if (source === 'paypal-flow' && message.type === 'PAYPAL_HOSTED_GET_STATE') {
+        return { hostedStage: 'dead_end', hostedDeadEndVisible: true };
+      }
+      return {};
+    },
+    setState: async () => {},
+    sleepWithStop: async () => {
+      sleepCalls += 1;
+      if (sleepCalls > 2) {
+        throw new Error('流程已被用户停止。');
+      }
+    },
+    throwIfStopped: () => {},
+    waitForTabCompleteUntilStopped: async () => {},
+    waitForTabUrlMatchUntilStopped: async (_tabId, matcher) => {
+      if (matcher(tabUrl, { id: 81, url: tabUrl })) {
+        return { id: 81, url: tabUrl };
+      }
+      return null;
+    },
+  });
+
+  await executor.executePlusCheckoutCreate({
+    plusModeEnabled: true,
+    plusPaymentMethod: 'paypal',
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(events.some((event) => event.type === 'complete'), false);
+  assert.equal(events.some((event) => event.type === 'log' && /尚未完成最终同意/.test(event.message)), true);
+});
+
 test('Plus checkout content routes billing operations through the operation delay gate', async () => {
   const { checkoutEvents, send } = createCheckoutContentHarness();
 
