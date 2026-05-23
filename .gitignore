@@ -16,3 +16,6 @@ __pycache__/
 /release-artifacts/
 # Local exported runtime settings
 /config.json
+
+# Local xray config (contains real node credentials; copy from xray-config.json.example)
+/services/checkout-converter/deploy/compose/xray-config.json

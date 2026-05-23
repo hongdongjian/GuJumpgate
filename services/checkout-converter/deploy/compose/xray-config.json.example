@@ -1,0 +1,136 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "listen": "0.0.0.0",
+      "port": 7891,
+      "protocol": "http",
+      "tag": "http-in",
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls"]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vmess",
+      "tag": "node-1",
+      "settings": {
+        "vnext": [
+          {
+            "address": "REPLACE_WITH_NODE_HOST_1",
+            "port": 443,
+            "users": [
+              {
+                "id": "REPLACE_WITH_UUID_1",
+                "alterId": 0,
+                "security": "auto"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "allowInsecure": false,
+          "serverName": "REPLACE_WITH_NODE_HOST_1"
+        },
+        "wsSettings": {
+          "path": "/REPLACE_WITH_PATH_1",
+          "headers": {
+            "Host": "REPLACE_WITH_NODE_HOST_1"
+          }
+        }
+      }
+    },
+    {
+      "protocol": "vmess",
+      "tag": "node-2",
+      "settings": {
+        "vnext": [
+          {
+            "address": "REPLACE_WITH_NODE_HOST_2",
+            "port": 443,
+            "users": [
+              {
+                "id": "REPLACE_WITH_UUID_2",
+                "alterId": 0,
+                "security": "auto"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "allowInsecure": false,
+          "serverName": "REPLACE_WITH_NODE_HOST_2"
+        },
+        "wsSettings": {
+          "path": "/REPLACE_WITH_PATH_2",
+          "headers": {
+            "Host": "REPLACE_WITH_NODE_HOST_2"
+          }
+        }
+      }
+    },
+    {
+      "protocol": "vmess",
+      "tag": "node-3",
+      "settings": {
+        "vnext": [
+          {
+            "address": "REPLACE_WITH_NODE_HOST_3",
+            "port": 443,
+            "users": [
+              {
+                "id": "REPLACE_WITH_UUID_3",
+                "alterId": 0,
+                "security": "auto"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "allowInsecure": false,
+          "serverName": "REPLACE_WITH_NODE_HOST_3"
+        },
+        "wsSettings": {
+          "path": "/REPLACE_WITH_PATH_3",
+          "headers": {
+            "Host": "REPLACE_WITH_NODE_HOST_3"
+          }
+        }
+      }
+    }
+  ],
+  "routing": {
+    "balancers": [
+      {
+        "tag": "checkout-balancer",
+        "selector": ["node-"],
+        "strategy": {
+          "type": "roundRobin"
+        }
+      }
+    ],
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": ["http-in"],
+        "balancerTag": "checkout-balancer"
+      }
+    ]
+  }
+}

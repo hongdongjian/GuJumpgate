@@ -7,6 +7,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from curl_cffi import requests as curl_requests
 from fastapi import FastAPI, Header, HTTPException, Request, Response
@@ -241,12 +242,13 @@ async def lifespan(app: FastAPI):
     app.state.checkout_session = session
     app.state.outbound_limiter = asyncio.Semaphore(settings.max_outbound_concurrency)
     logger.info(
-        "checkout converter service starting service=%s version=%s max_outbound_concurrency=%s session_max_clients=%s api_key_enabled=%s",
+        "checkout converter service starting service=%s version=%s max_outbound_concurrency=%s session_max_clients=%s api_key_enabled=%s proxy_configured=%s",
         settings.service_name,
         settings.service_version,
         settings.max_outbound_concurrency,
         settings.session_max_clients,
         bool(settings.api_key),
+        bool(settings.default_proxy_url),
     )
     try:
         yield
@@ -302,20 +304,56 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
+async def probe_proxy_reachable(proxy_url: str, timeout_seconds: float = 1.5) -> bool:
+    try:
+        parsed = urlparse(proxy_url)
+        host = parsed.hostname
+        port = parsed.port
+        if not host or not port:
+            return False
+    except Exception:
+        return False
+    try:
+        fut = asyncio.open_connection(host, port)
+        reader, writer = await asyncio.wait_for(fut, timeout=timeout_seconds)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
 @app.get("/healthz")
 async def healthz(request: Request):
     settings: Settings = request.app.state.settings
     semaphore: asyncio.Semaphore = request.app.state.outbound_limiter
     active_estimate = settings.max_outbound_concurrency - getattr(semaphore, "_value", settings.max_outbound_concurrency)
-    return {
-        "ok": True,
+    proxy_configured = bool(settings.default_proxy_url)
+    proxy_reachable: bool | None = None
+    if proxy_configured:
+        try:
+            normalized_proxy = normalize_proxy_url(settings.default_proxy_url)
+        except HTTPException:
+            normalized_proxy = ""
+        proxy_reachable = await probe_proxy_reachable(normalized_proxy) if normalized_proxy else False
+    healthy = (not proxy_configured) or bool(proxy_reachable)
+    body = {
+        "ok": healthy,
         "service": settings.service_name,
         "version": settings.service_version,
         "maxOutboundConcurrency": settings.max_outbound_concurrency,
         "sessionMaxClients": settings.session_max_clients,
         "activeOutboundEstimate": max(0, active_estimate),
         "apiKeyEnabled": bool(settings.api_key),
+        "proxyConfigured": proxy_configured,
+        "proxyReachable": proxy_reachable,
     }
+    if not healthy:
+        return JSONResponse(status_code=503, content=body)
+    return body
 
 
 @app.post("/api/checkout", response_model=CheckoutConvertResponse)

@@ -104,6 +104,7 @@ gunicorn -k uvicorn.workers.UvicornWorker -w 2 -b 0.0.0.0:8080 app:app
 
 如果是 4 核机器，建议从 `2` 或 `3` 个 worker 起步，不要一开始把 worker 开太高。
 
+
 ### 2. 并发参数
 
 - `MAX_OUTBOUND_CONCURRENCY`
@@ -162,3 +163,17 @@ OPENAI_PROXY_URL=
 SERVICE_NAME=checkout-converter
 SERVICE_VERSION=1.0.0
 ```
+
+`OPENAI_PROXY_URL` 是所有上游请求统一走的代理，支持 `http://`、`https://`、`socks5://`、`socks5h://`。请求体里显式带 `proxyUrl` 时以请求体为准（方便排障）。
+
+## 多节点轮询（xray sidecar）
+
+应用本身不再管理 xray 进程。生产环境用 docker-compose 把 xray 作为独立容器，
+让应用通过 `OPENAI_PROXY_URL=http://xray:7891` 出网；xray 负责多节点轮询
+（`routing.balancers`，策略可选 `roundRobin / random / leastPing`）。
+
+完整方案见 [`deploy/compose/`](./deploy/compose/README.md)，要点：
+
+- `deploy/compose/xray-config.json` 填入多个 `node-*` outbound，`selector: ["node-"]` 自动加入 balancer。
+- 应用容器 `OPENAI_PROXY_URL=http://xray:7891`，多 worker 安全。
+- 轮换节点：编辑 `xray-config.json` → `docker compose restart xray`，应用不需重启。

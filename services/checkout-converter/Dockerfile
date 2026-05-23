@@ -13,4 +13,7 @@ COPY app.py /app/app.py
 
 EXPOSE 8080
 
+# To route outbound traffic through a multi-node proxy pool, deploy xray as a
+# sidecar (see services/checkout-converter/deploy/compose/) and set
+# OPENAI_PROXY_URL=http://xray:7891 in the application container's environment.
 CMD ["gunicorn", "-k", "uvicorn.workers.UvicornWorker", "-w", "2", "-b", "0.0.0.0:8080", "app:app"]

@@ -1,0 +1,54 @@
+services:
+  xray:
+    image: teddysun/xray:latest
+    container_name: checkout-xray
+    restart: unless-stopped
+    volumes:
+      - ./xray-config.json:/etc/xray/config.json:ro
+    networks:
+      - checkout-net
+    healthcheck:
+      # teddysun/xray is alpine-based and ships busybox nc.
+      # If you switch to a distroless xray image (e.g. ghcr.io/xtls/xray-core),
+      # replace this with a TCP probe that exists in your image, or remove the
+      # healthcheck and switch `depends_on.xray.condition` to `service_started`.
+      test: ["CMD", "nc", "-z", "127.0.0.1", "7891"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 5s
+
+  checkout-converter:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: checkout-converter:latest
+    container_name: checkout-converter
+    restart: unless-stopped
+    depends_on:
+      xray:
+        condition: service_healthy
+    environment:
+      # Route outbound traffic through the sidecar xray (which fans out across
+      # multiple upstream nodes via routing.balancers in xray-config.json).
+      OPENAI_PROXY_URL: "http://xray:7891"
+      CHECKOUT_CONVERTER_API_KEY: "${CHECKOUT_CONVERTER_API_KEY:-default}"
+      MAX_OUTBOUND_CONCURRENCY: "${MAX_OUTBOUND_CONCURRENCY:-200}"
+      SESSION_MAX_CLIENTS: "${SESSION_MAX_CLIENTS:-400}"
+      REQUEST_TIMEOUT_SECONDS: "${REQUEST_TIMEOUT_SECONDS:-30}"
+      IMPERSONATE_BROWSER: "${IMPERSONATE_BROWSER:-chrome136}"
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+    ports:
+      - "${CHECKOUT_CONVERTER_PORT:-18080}:8080"
+    networks:
+      - checkout-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2); sys.exit(0 if r.status==200 else 1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  checkout-net:
+    driver: bridge
