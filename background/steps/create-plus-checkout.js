@@ -1088,7 +1088,7 @@
       }
     }
 
-    async function readAccessTokenFromChatGptSessionTab(tabId) {
+    async function readChatGptSessionFromTab(tabId) {
       await waitForTabCompleteUntilStopped(tabId);
       await sleepWithStop(1000);
       await ensureContentScriptReadyOnTabUntilStopped(PLUS_CHECKOUT_SOURCE, tabId, {
@@ -1108,7 +1108,14 @@
       if (sessionResult?.error) {
         throw new Error(sessionResult.error);
       }
-      return String(sessionResult?.accessToken || sessionResult?.session?.accessToken || '').trim();
+      const session = sessionResult?.session || null;
+      const accessToken = String(sessionResult?.accessToken || session?.accessToken || '').trim();
+      return { session, accessToken };
+    }
+
+    async function readAccessTokenFromChatGptSessionTab(tabId) {
+      const { accessToken } = await readChatGptSessionFromTab(tabId);
+      return accessToken;
     }
 
     async function generateGpcCheckoutFromApi(accessToken = '', state = {}) {
@@ -1181,12 +1188,18 @@
     }
 
     async function executeGpcCheckoutCreate(state = {}) {
+      const panelMode = String(state?.panelMode || '').trim().toLowerCase();
+      const skipEligibleModes = new Set(['local-cpa-json-no-rt', 'local-sub2api-json']);
+
       let accessToken = String(state?.contributionAccessToken || state?.accessToken || state?.chatgptAccessToken || '').trim();
+      let sessionPlanType = '';
       if (!accessToken) {
-        await addLog('步骤 6：正在获取 accessToken...', 'info');
+        await addLog('步骤 6：正在获取 accessToken 并校验账户类型...', 'info');
         const tokenTabId = await openFreshChatGptTabForCheckoutCreate();
         try {
-          accessToken = await readAccessTokenFromChatGptSessionTab(tokenTabId);
+          const { session, accessToken: token } = await readChatGptSessionFromTab(tokenTabId);
+          accessToken = token;
+          sessionPlanType = String(session?.account?.planType || '').trim();
         } finally {
           if (chrome?.tabs?.remove && Number.isInteger(tokenTabId)) {
             await chrome.tabs.remove(tokenTabId).catch(() => {});
@@ -1195,6 +1208,39 @@
       }
       if (!accessToken) {
         throw new Error('步骤 6：GPC 模式获取 accessToken 失败。');
+      }
+      if (sessionPlanType) {
+        const planType = sessionPlanType.toLowerCase();
+        if (planType !== 'free') {
+          const isPlus = planType === 'plus';
+          if (isPlus && skipEligibleModes.has(panelMode)) {
+            await addLog(
+              `步骤 6：GPC 路径检测到账户已是 Plus（planType=${sessionPlanType}），跳过 checkout/payment 直接进入下一步。`,
+              'ok'
+            );
+            await setState({
+              plusCheckoutTabId: null,
+              plusCheckoutCountry: 'US',
+              plusCheckoutCurrency: 'USD',
+              plusCheckoutSource: 'skipped-already-plus',
+              plusReturnUrl: '',
+            });
+            await completeNodeFromBackground('plus-checkout-create', {
+              plusCheckoutCountry: 'US',
+              plusCheckoutCurrency: 'USD',
+              skippedDueToAlreadyPlus: true,
+            });
+            return;
+          }
+          if (isPlus) {
+            throw new Error(
+              `账户已是 Plus（planType=${sessionPlanType}），当前 panelMode=${panelMode || 'unknown'} 不支持跳过 checkout。`
+            );
+          }
+          throw new Error(
+            `账户已订阅其他付费计划（planType=${sessionPlanType}），无法继续创建 GPC checkout。`
+          );
+        }
       }
 
       await addLog('步骤 6：正在调用 GPC 接口创建订单...', 'info');
@@ -1323,51 +1369,35 @@
 
       const panelMode = String(state?.panelMode || '').trim().toLowerCase();
       const skipEligibleModes = new Set(['local-cpa-json-no-rt', 'local-sub2api-json']);
-      let detectResult = null;
-      try {
-        detectResult = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
-          type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS',
-          source: 'background',
-          payload: { buttonWaitMs: 5000, badgeWaitAfterButtonMs: 1500 },
-        });
-      } catch (error) {
-        await addLog(`步骤 6：账号状态探测失败（${error?.message || error}），按常规流程继续。`, 'warn');
-        detectResult = null;
-      }
-      if (detectResult?.accountDeactivated) {
-        const errorCode = detectResult.errorCode || 'account_deactivated';
-        await addLog(`步骤 6：检测到 ChatGPT 身份验证错误（${errorCode}），账号已被删除或停用，终止流程。`, 'error');
-        throw new Error(`ACCOUNT_DEACTIVATED::${errorCode}`);
-      }
-      if (detectResult?.isPlus && skipEligibleModes.has(panelMode)) {
-        await addLog(
-          `步骤 6：检测到账户已是 Plus（来源 ${detectResult?.planSource || 'unknown'}，标识 ${detectResult?.planText || detectResult?.ariaLabel || ''}），跳过 checkout/payment 直接进入下一步。`,
-          'ok'
-        );
-        await setState({
-          plusCheckoutTabId: tabId,
-          plusCheckoutCountry: 'US',
-          plusCheckoutCurrency: 'USD',
-          plusCheckoutSource: 'skipped-already-plus',
-          plusReturnUrl: '',
-        });
-        await completeNodeFromBackground('plus-checkout-create', {
-          plusCheckoutCountry: 'US',
-          plusCheckoutCurrency: 'USD',
-          skippedDueToAlreadyPlus: true,
-        });
-        return;
-      }
-      if (detectResult?.isPlus && !skipEligibleModes.has(panelMode)) {
-        await addLog(
-          `步骤 6：检测到账户已是 Plus，但当前 panelMode=${panelMode || 'unknown'} 不支持跳过 checkout，按常规流程继续。`,
-          'info'
-        );
-      }
-      if (detectResult && !detectResult.isPlus && !detectResult.accountDeactivated) {
-        await addLog(
-          `步骤 6：账号状态探测结果 found=${detectResult.found} hasBadge=${detectResult.hasBadge || false} planText=${detectResult.planText || ''} ariaLabel=${detectResult.ariaLabel || ''}，按常规 checkout 流程继续。`,
-          'info'
+
+      async function handleAlreadyPaidPlan(planType, isPlus) {
+        const planLabel = planType || (isPlus ? 'plus' : 'unknown');
+        if (isPlus && skipEligibleModes.has(panelMode)) {
+          await addLog(
+            `步骤 6：检测到账户已是 Plus（planType=${planLabel}），跳过 checkout/payment 直接进入下一步。`,
+            'ok'
+          );
+          await setState({
+            plusCheckoutTabId: tabId,
+            plusCheckoutCountry: 'US',
+            plusCheckoutCurrency: 'USD',
+            plusCheckoutSource: 'skipped-already-plus',
+            plusReturnUrl: '',
+          });
+          await completeNodeFromBackground('plus-checkout-create', {
+            plusCheckoutCountry: 'US',
+            plusCheckoutCurrency: 'USD',
+            skippedDueToAlreadyPlus: true,
+          });
+          return true;
+        }
+        if (isPlus) {
+          throw new Error(
+            `账户已是 Plus（planType=${planLabel}），当前 panelMode=${panelMode || 'unknown'} 不支持跳过 checkout。`
+          );
+        }
+        throw new Error(
+          `账户已订阅其他付费计划（planType=${planLabel}），无法继续创建 Plus checkout。`
         );
       }
 
@@ -1375,9 +1405,18 @@
       let result = null;
       if (useCloudCheckoutConversion) {
         await addLog('步骤 6：已启用云端支付转换，正在读取 accessToken 并请求云端服务生成订阅链接...', 'info');
-        const accessToken = await readAccessTokenFromChatGptSessionTab(tabId);
+        const { session, accessToken } = await readChatGptSessionFromTab(tabId);
         if (!accessToken) {
           throw new Error('步骤 6：云端支付转换未获取到可用 accessToken。');
+        }
+        const planTypeRaw = String(session?.account?.planType || '').trim();
+        const planType = planTypeRaw.toLowerCase();
+        if (!planType) {
+          throw new Error('步骤 6：云端支付转换未识别到 planType，终止 checkout 创建。');
+        }
+        if (planType !== 'free') {
+          const handled = await handleAlreadyPaidPlan(planTypeRaw, planType === 'plus');
+          if (handled) return;
         }
         result = await generateCloudCheckoutFromApi(accessToken, paymentMethod, state);
       } else {
@@ -1387,16 +1426,34 @@
             : `步骤 6：正在由扩展内部创建${checkoutModeLabel}...`,
           'info'
         );
-        result = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
-          type: 'CREATE_PLUS_CHECKOUT',
-          source: 'background',
-          payload: { paymentMethod },
-        });
+        try {
+          result = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
+            type: 'CREATE_PLUS_CHECKOUT',
+            source: 'background',
+            payload: { paymentMethod },
+          });
+        } catch (error) {
+          const msg = String(error?.message || error || '');
+          if (/^ACCOUNT_DEACTIVATED::/.test(msg)) {
+            await addLog(`步骤 6：检测到 ChatGPT 身份验证错误（${msg}），账号已被删除或停用，终止流程。`, 'error');
+          }
+          throw error;
+        }
 
         if (result?.error) {
-          throw new Error(result.error);
+          const errMsg = String(result.error || '');
+          if (/^ACCOUNT_DEACTIVATED::/.test(errMsg)) {
+            await addLog(`步骤 6：检测到 ChatGPT 身份验证错误（${errMsg}），账号已被删除或停用，终止流程。`, 'error');
+          }
+          throw new Error(errMsg);
         }
       }
+
+      if (result?.alreadyPaid) {
+        const handled = await handleAlreadyPaidPlan(result.planType, Boolean(result.alreadyPlus));
+        if (handled) return;
+      }
+
       const targetCheckoutUrl = String(
         result?.preferredCheckoutUrl
         || result?.hostedCheckoutUrl

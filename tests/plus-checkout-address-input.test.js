@@ -38,7 +38,7 @@ test('plus checkout content script can be injected repeatedly on the same page',
   assert.equal(context.__MULTIPAGE_PLUS_CHECKOUT_READY__, true);
 });
 
-function createPlusCheckoutMessageHarness({ checkoutSessionId = 'cs_test_123' } = {}) {
+function createPlusCheckoutMessageHarness({ checkoutSessionId = 'cs_test_123', planType = 'free', deactivated = false } = {}) {
   const attrs = new Map();
   let listener = null;
   const fetchCalls = [];
@@ -48,6 +48,7 @@ function createPlusCheckoutMessageHarness({ checkoutSessionId = 'cs_test_123' } 
     window: {},
     document: {
       readyState: 'complete',
+      body: { textContent: deactivated ? '身份验证错误 错误代码：account_deactivated' : '' },
       documentElement: {
         getAttribute(name) {
           return attrs.get(name) || null;
@@ -77,7 +78,11 @@ function createPlusCheckoutMessageHarness({ checkoutSessionId = 'cs_test_123' } 
         return {
           ok: true,
           status: 200,
-          json: async () => ({ accessToken: 'test-access-token' }),
+          json: async () => ({
+            accessToken: 'test-access-token',
+            account: { planType },
+            user: { email: 'free@example.com' },
+          }),
         };
       }
       if (url === 'https://chatgpt.com/backend-api/payments/checkout') {
@@ -167,6 +172,34 @@ test('CREATE_PLUS_CHECKOUT uses ID/IDR and openai_llc merchant path for GoPay', 
     promo_campaign_id: 'plus-1-month-free',
     is_coupon_from_query_param: false,
   });
+});
+
+test('CREATE_PLUS_CHECKOUT planType=plus 时返回 alreadyPaid/alreadyPlus 且不再 POST checkout', async () => {
+  const harness = createPlusCheckoutMessageHarness({ planType: 'plus' });
+  const result = await harness.send({ type: 'CREATE_PLUS_CHECKOUT', source: 'test', payload: {} });
+  assert.equal(result.ok, true);
+  assert.equal(result.alreadyPaid, true);
+  assert.equal(result.alreadyPlus, true);
+  assert.equal(result.planType, 'plus');
+  const checkoutCall = harness.fetchCalls.find((c) => c.url === 'https://chatgpt.com/backend-api/payments/checkout');
+  assert.equal(checkoutCall, undefined, '已是 Plus 不应再请求创建 checkout');
+});
+
+test('CREATE_PLUS_CHECKOUT planType=pro 时返回 alreadyPaid 但 alreadyPlus=false 且不 POST', async () => {
+  const harness = createPlusCheckoutMessageHarness({ planType: 'pro' });
+  const result = await harness.send({ type: 'CREATE_PLUS_CHECKOUT', source: 'test', payload: {} });
+  assert.equal(result.ok, true);
+  assert.equal(result.alreadyPaid, true);
+  assert.equal(result.alreadyPlus, false);
+  const checkoutCall = harness.fetchCalls.find((c) => c.url === 'https://chatgpt.com/backend-api/payments/checkout');
+  assert.equal(checkoutCall, undefined);
+});
+
+test('CREATE_PLUS_CHECKOUT body 出现 account_deactivated 时抛 ACCOUNT_DEACTIVATED 错误', async () => {
+  const harness = createPlusCheckoutMessageHarness({ deactivated: true });
+  const result = await harness.send({ type: 'CREATE_PLUS_CHECKOUT', source: 'test', payload: {} });
+  assert.equal(result.ok, undefined);
+  assert.match(String(result.error || ''), /ACCOUNT_DEACTIVATED::account_deactivated/);
 });
 
 function extractFunction(name) {

@@ -64,7 +64,6 @@ if (document.documentElement.getAttribute(PLUS_CHECKOUT_LISTENER_SENTINEL) !== '
       || message.type === 'PLUS_CHECKOUT_ENSURE_BILLING_ADDRESS'
       || message.type === 'PLUS_CHECKOUT_CLICK_SUBSCRIBE'
       || message.type === 'PLUS_CHECKOUT_GET_STATE'
-      || message.type === 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS'
     ) {
       resetStopState();
       handlePlusCheckoutCommand(message).then((result) => {
@@ -107,8 +106,6 @@ async function handlePlusCheckoutCommand(message) {
       return clickPlusSubscribe(message.payload || {});
     case 'PLUS_CHECKOUT_GET_STATE':
       return inspectPlusCheckoutState(message.payload || {});
-    case 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS':
-      return detectAccountAlreadyPlus(message.payload || {});
     default:
       throw new Error(`plus-checkout.js 不处理消息：${message.type}`);
   }
@@ -1032,6 +1029,14 @@ function findHostedCheckoutUrl(payload = {}) {
 
 async function createPlusCheckoutSession(options = {}) {
   await waitForDocumentComplete();
+
+  const bodyText = String(document.body?.textContent || '');
+  const deactivatedMatch = bodyText.match(/account[_-]deactivated|account[_-]disabled|account[_-]removed/i);
+  if (deactivatedMatch) {
+    const errorCode = deactivatedMatch[0].toLowerCase();
+    throw new Error(`ACCOUNT_DEACTIVATED::${errorCode}`);
+  }
+
   log('Plus：正在读取 ChatGPT 登录会话...');
 
   const sessionResponse = await fetch('/api/auth/session', {
@@ -1041,6 +1046,24 @@ async function createPlusCheckoutSession(options = {}) {
   const accessToken = session?.accessToken;
   if (!accessToken) {
     throw new Error('请先登录 ChatGPT，当前页面未返回可用 accessToken。');
+  }
+
+  const planTypeRaw = String(session?.account?.planType || '').trim();
+  const planType = planTypeRaw.toLowerCase();
+  const accountId = String(session?.account?.id || '').trim();
+  const userEmail = String(session?.user?.email || '').trim();
+  if (!planType) {
+    throw new Error('Plus：无法识别 ChatGPT 账户类型（planType 缺失），终止 checkout 创建。');
+  }
+  if (planType !== 'free') {
+    log(`Plus：检测到账户已是付费类型（planType=${planTypeRaw}），跳过 checkout 创建。`, 'info');
+    return {
+      alreadyPaid: true,
+      alreadyPlus: planType === 'plus',
+      planType: planTypeRaw,
+      accountId,
+      userEmail,
+    };
   }
 
   log('Plus：正在创建 checkout 会话...');
@@ -2120,114 +2143,6 @@ async function readChatGptSessionAccessToken() {
   };
 }
 
-async function detectAccountAlreadyPlus(options = {}) {
-  const PLAN_TOKENS = ['Plus', 'Pro', 'Team', 'Enterprise'];
-  const buttonWaitMs = Math.max(0, Math.floor(Number(options?.buttonWaitMs) || 5000));
-  const badgeWaitAfterButtonMs = Math.max(0, Math.floor(Number(options?.badgeWaitAfterButtonMs) || 1500));
-  const pollIntervalMs = 150;
-
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  }
-
-  function isPlanToken(text) {
-    const trimmed = String(text || '').trim();
-    if (!trimmed) return '';
-    for (const token of PLAN_TOKENS) {
-      if (trimmed === token || new RegExp(`^${token}(\\s|$)`).test(trimmed)) {
-        return token;
-      }
-    }
-    return '';
-  }
-
-  function parseAriaLabelPlanHint(ariaLabel) {
-    const match = String(ariaLabel || '').match(/\s(Plus|Pro|Team|Enterprise)(?=[，,\s]|$)/);
-    return match ? match[1] : '';
-  }
-
-  function detectAccountDeactivated() {
-    const metaNodes = Array.from(document.querySelectorAll('[class*="_metadataLine_"], [class*="metadataLine"]'));
-    for (const node of metaNodes) {
-      const match = String(node.textContent || '').match(/account[_-]deactivated|account[_-]disabled|account[_-]removed/i);
-      if (match) {
-        return { deactivated: true, errorCode: match[0].toLowerCase(), source: 'metadata' };
-      }
-    }
-    const bodyText = String(document.body?.textContent || '');
-    if (/account_deactivated/i.test(bodyText)) {
-      return { deactivated: true, errorCode: 'account_deactivated', source: 'body-text' };
-    }
-    return { deactivated: false, errorCode: '', source: '' };
-  }
-
-  function findBadgeToken(btn) {
-    if (!btn) return '';
-    const candidates = Array.from(btn.querySelectorAll('span[dir="auto"] span'));
-    for (const candidate of candidates) {
-      const token = isPlanToken(candidate.textContent);
-      if (token) return token;
-    }
-    return '';
-  }
-
-  // 阶段 1：等待身份验证错误页 或 profile button 出现
-  const phase1End = Date.now() + buttonWaitMs;
-  while (Date.now() < phase1End) {
-    const deact = detectAccountDeactivated();
-    if (deact.deactivated) {
-      return {
-        found: true,
-        isPlus: false,
-        accountDeactivated: true,
-        errorCode: deact.errorCode,
-        errorSource: deact.source,
-      };
-    }
-    if (document.querySelector('[data-testid="accounts-profile-button"]')) break;
-    await sleep(pollIntervalMs);
-  }
-
-  // 再次确认 deactivated（兜底）
-  const deactFinal = detectAccountDeactivated();
-  if (deactFinal.deactivated) {
-    return {
-      found: true,
-      isPlus: false,
-      accountDeactivated: true,
-      errorCode: deactFinal.errorCode,
-      errorSource: deactFinal.source,
-    };
-  }
-
-  let btn = document.querySelector('[data-testid="accounts-profile-button"]');
-  if (!btn) {
-    return { found: false, isPlus: false, accountDeactivated: false };
-  }
-
-  // 阶段 2：button 出现后短等 badge 渲染（每轮重新查询节点，防止 React 替换节点）
-  const phase2End = Date.now() + badgeWaitAfterButtonMs;
-  let token = findBadgeToken(btn);
-  while (!token && Date.now() < phase2End) {
-    await sleep(pollIntervalMs);
-    const next = document.querySelector('[data-testid="accounts-profile-button"]');
-    if (next) btn = next;
-    token = findBadgeToken(btn);
-  }
-
-  const ariaLabel = String(btn.getAttribute('aria-label') || '');
-  return {
-    found: true,
-    isPlus: token === 'Plus',
-    accountDeactivated: false,
-    planText: token,
-    planSource: token ? 'badge' : '',
-    hasBadge: Boolean(token),
-    ariaLabel,
-    ariaLabelPlanHint: parseAriaLabelPlanHint(ariaLabel),
-  };
-}
-
 async function inspectPlusCheckoutState(options = {}) {
   const structuredAddress = getStructuredAddressFields();
   const state = {
@@ -2254,6 +2169,11 @@ async function inspectPlusCheckoutState(options = {}) {
     },
   };
   if (options.includeSession || options.includeAccessToken) {
+    const bodyText = String(document.body?.textContent || '');
+    const deactivatedMatch = bodyText.match(/account[_-]deactivated|account[_-]disabled|account[_-]removed/i);
+    if (deactivatedMatch) {
+      throw new Error(`ACCOUNT_DEACTIVATED::${deactivatedMatch[0].toLowerCase()}`);
+    }
     const sessionState = await readChatGptSessionAccessToken();
     state.session = sessionState.session;
     state.accessToken = sessionState.accessToken;
