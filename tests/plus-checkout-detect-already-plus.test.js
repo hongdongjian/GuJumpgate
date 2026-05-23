@@ -14,17 +14,29 @@ function createDomHarness(html) {
 
   const fakeDocument = (() => {
     const elements = parseSimpleDom(html);
+    const metadataNodes = html?.deactivated
+      ? [{ textContent: '错误代码：account_deactivated' }]
+      : [];
+    const bodyText = html?.deactivated
+      ? '身份验证错误 账户已被删除或停用 account_deactivated'
+      : '';
     return {
       readyState: 'complete',
-      body: {},
+      body: { textContent: bodyText },
       documentElement: { getAttribute() { return null; }, setAttribute() {} },
       querySelector(selector) {
         if (selector === '[data-testid="accounts-profile-button"]') {
-          return elements.button;
+          return html?.hasButton === false ? null : elements.button;
         }
         return null;
       },
-      querySelectorAll() { return []; },
+      querySelectorAll(selector) {
+        const text = String(selector || '');
+        if (text.includes('_metadataLine_') || text.includes('metadataLine')) {
+          return metadataNodes;
+        }
+        return [];
+      },
       getElementById() { return null; },
     };
   })();
@@ -69,7 +81,7 @@ function createDomHarness(html) {
   };
 }
 
-function parseSimpleDom({ ariaLabel = '', userName = '', planBadgeText = '' }) {
+function parseSimpleDom({ ariaLabel = '', userName = '', planBadgeText = '', deactivated = false }) {
   const planSpans = planBadgeText
     ? [{ textContent: planBadgeText }]
     : [];
@@ -108,30 +120,43 @@ function makeProbe(opts) {
 
 test('badge 文本恰为 "Plus" → isPlus=true', async () => {
   const send = makeProbe({ ariaLabel: 'Karen White Plus，打开"个人资料"菜单', userName: 'Karen White', planBadgeText: 'Plus' });
-  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { timeoutMs: 100 } });
+  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { buttonWaitMs: 100, badgeWaitAfterButtonMs: 50 } });
   assert.equal(result.isPlus, true);
   assert.equal(result.planText, 'Plus');
 });
 
 test('用户名包含 Plus 但没有 plan badge → isPlus=false（避免假阳）', async () => {
   const send = makeProbe({ ariaLabel: 'Plus User Name，打开"个人资料"菜单', userName: 'Plus User Name', planBadgeText: '' });
-  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { timeoutMs: 100 } });
+  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { buttonWaitMs: 100, badgeWaitAfterButtonMs: 50 } });
   assert.equal(result.isPlus, false);
   assert.equal(result.planText, '');
 });
 
 test('badge 是 "Pro" 不是 Plus → isPlus=false', async () => {
   const send = makeProbe({ ariaLabel: 'Karen White Pro', userName: 'Karen White', planBadgeText: 'Pro' });
-  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { timeoutMs: 100 } });
+  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { buttonWaitMs: 100, badgeWaitAfterButtonMs: 50 } });
   assert.equal(result.isPlus, false);
   assert.equal(result.planText, 'Pro');
 });
 
 test('找不到 profile button → found=false', async () => {
-  const send = createDomHarness({ ariaLabel: '', userName: '', planBadgeText: '' });
-  // override document so button is null
-  // simpler: send and assert
-  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { timeoutMs: 100 } });
-  // with empty fields button still exists in our harness; this case is covered by real DOM absence in browser. Skip strict assert here.
-  assert.ok(result);
+  const send = createDomHarness({ hasButton: false });
+  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { buttonWaitMs: 100, badgeWaitAfterButtonMs: 50 } });
+  assert.equal(result.found, false);
+  assert.equal(result.isPlus, false);
+  assert.equal(result.accountDeactivated, false);
+});
+
+test('页面出现 account_deactivated 元信息 → accountDeactivated=true', async () => {
+  const send = makeProbe({ deactivated: true });
+  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { buttonWaitMs: 100, badgeWaitAfterButtonMs: 50 } });
+  assert.equal(result.accountDeactivated, true);
+  assert.equal(result.isPlus, false);
+  assert.equal(result.errorCode, 'account_deactivated');
+});
+
+test('正常页面 → accountDeactivated=false', async () => {
+  const send = makeProbe({ planBadgeText: 'Plus' });
+  const result = await send({ type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS', payload: { buttonWaitMs: 100, badgeWaitAfterButtonMs: 50 } });
+  assert.equal(result.accountDeactivated, false);
 });

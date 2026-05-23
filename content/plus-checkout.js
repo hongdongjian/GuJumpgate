@@ -2121,48 +2121,111 @@ async function readChatGptSessionAccessToken() {
 }
 
 async function detectAccountAlreadyPlus(options = {}) {
-  const timeoutMs = Math.max(0, Math.floor(Number(options?.timeoutMs) || 8000));
-  const startedAt = Date.now();
   const PLAN_TOKENS = ['Plus', 'Pro', 'Team', 'Enterprise'];
+  const buttonWaitMs = Math.max(0, Math.floor(Number(options?.buttonWaitMs) || 5000));
+  const badgeWaitAfterButtonMs = Math.max(0, Math.floor(Number(options?.badgeWaitAfterButtonMs) || 1500));
+  const pollIntervalMs = 150;
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
   function isPlanToken(text) {
     const trimmed = String(text || '').trim();
-    if (!trimmed) return { isPlan: false, token: '' };
+    if (!trimmed) return '';
     for (const token of PLAN_TOKENS) {
       if (trimmed === token || new RegExp(`^${token}(\\s|$)`).test(trimmed)) {
-        return { isPlan: true, token };
+        return token;
       }
     }
-    return { isPlan: false, token: '' };
+    return '';
   }
 
-  function probe() {
-    const btn = document.querySelector('[data-testid="accounts-profile-button"]');
-    if (!btn) return { found: false, isPlus: false };
-    const badgeCandidates = Array.from(btn.querySelectorAll('span[dir="auto"] span'));
-    let detectedToken = '';
-    for (const candidate of badgeCandidates) {
-      const result = isPlanToken(candidate.textContent);
-      if (result.isPlan) {
-        detectedToken = result.token;
-        break;
+  function parseAriaLabelPlanHint(ariaLabel) {
+    const match = String(ariaLabel || '').match(/\s(Plus|Pro|Team|Enterprise)(?=[，,\s]|$)/);
+    return match ? match[1] : '';
+  }
+
+  function detectAccountDeactivated() {
+    const metaNodes = Array.from(document.querySelectorAll('[class*="_metadataLine_"], [class*="metadataLine"]'));
+    for (const node of metaNodes) {
+      const match = String(node.textContent || '').match(/account[_-]deactivated|account[_-]disabled|account[_-]removed/i);
+      if (match) {
+        return { deactivated: true, errorCode: match[0].toLowerCase(), source: 'metadata' };
       }
     }
-    const isPlus = detectedToken === 'Plus';
+    const bodyText = String(document.body?.textContent || '');
+    if (/account_deactivated/i.test(bodyText)) {
+      return { deactivated: true, errorCode: 'account_deactivated', source: 'body-text' };
+    }
+    return { deactivated: false, errorCode: '', source: '' };
+  }
+
+  function findBadgeToken(btn) {
+    if (!btn) return '';
+    const candidates = Array.from(btn.querySelectorAll('span[dir="auto"] span'));
+    for (const candidate of candidates) {
+      const token = isPlanToken(candidate.textContent);
+      if (token) return token;
+    }
+    return '';
+  }
+
+  // 阶段 1：等待身份验证错误页 或 profile button 出现
+  const phase1End = Date.now() + buttonWaitMs;
+  while (Date.now() < phase1End) {
+    const deact = detectAccountDeactivated();
+    if (deact.deactivated) {
+      return {
+        found: true,
+        isPlus: false,
+        accountDeactivated: true,
+        errorCode: deact.errorCode,
+        errorSource: deact.source,
+      };
+    }
+    if (document.querySelector('[data-testid="accounts-profile-button"]')) break;
+    await sleep(pollIntervalMs);
+  }
+
+  // 再次确认 deactivated（兜底）
+  const deactFinal = detectAccountDeactivated();
+  if (deactFinal.deactivated) {
     return {
       found: true,
-      isPlus,
-      planText: detectedToken,
-      ariaLabel: String(btn.getAttribute('aria-label') || ''),
+      isPlus: false,
+      accountDeactivated: true,
+      errorCode: deactFinal.errorCode,
+      errorSource: deactFinal.source,
     };
   }
 
-  let last = probe();
-  while (!last.found && Date.now() - startedAt < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    last = probe();
+  let btn = document.querySelector('[data-testid="accounts-profile-button"]');
+  if (!btn) {
+    return { found: false, isPlus: false, accountDeactivated: false };
   }
-  return last;
+
+  // 阶段 2：button 出现后短等 badge 渲染（每轮重新查询节点，防止 React 替换节点）
+  const phase2End = Date.now() + badgeWaitAfterButtonMs;
+  let token = findBadgeToken(btn);
+  while (!token && Date.now() < phase2End) {
+    await sleep(pollIntervalMs);
+    const next = document.querySelector('[data-testid="accounts-profile-button"]');
+    if (next) btn = next;
+    token = findBadgeToken(btn);
+  }
+
+  const ariaLabel = String(btn.getAttribute('aria-label') || '');
+  return {
+    found: true,
+    isPlus: token === 'Plus',
+    accountDeactivated: false,
+    planText: token,
+    planSource: token ? 'badge' : '',
+    hasBadge: Boolean(token),
+    ariaLabel,
+    ariaLabelPlanHint: parseAriaLabelPlanHint(ariaLabel),
+  };
 }
 
 async function inspectPlusCheckoutState(options = {}) {

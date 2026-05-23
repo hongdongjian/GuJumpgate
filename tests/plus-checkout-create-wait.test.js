@@ -250,7 +250,7 @@ test('Plus checkout create uses internal PayPal checkout generation and waits fo
   const sleepEvents = events.filter((event) => event.type === 'sleep');
   assert.deepStrictEqual(sleepEvents.map((event) => event.ms), [1000, 1000]);
   assert.deepStrictEqual(
-    events.find((event) => event.type === 'tab-message')?.message?.payload,
+    events.find((event) => event.type === 'tab-message' && event.message?.type === 'CREATE_PLUS_CHECKOUT')?.message?.payload,
     { paymentMethod: 'paypal' }
   );
   assert.equal(events.some((event) => event.type === 'fetch'), false);
@@ -290,7 +290,8 @@ test('GoPay plus checkout create forwards gopay payment method to the checkout c
 
   await executor.executePlusCheckoutCreate({ plusPaymentMethod: 'gopay' });
 
-  assert.deepStrictEqual(events[0]?.payload, { paymentMethod: 'gopay' });
+  const createMessage = events.find((m) => m.type === 'CREATE_PLUS_CHECKOUT');
+  assert.deepStrictEqual(createMessage?.payload, { paymentMethod: 'gopay' });
 });
 
 test('Plus checkout create opens hosted external checkout url before billing step continues', async () => {

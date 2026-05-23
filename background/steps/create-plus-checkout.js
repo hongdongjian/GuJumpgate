@@ -1324,23 +1324,24 @@
       const panelMode = String(state?.panelMode || '').trim().toLowerCase();
       const skipEligibleModes = new Set(['local-cpa-json-no-rt', 'local-sub2api-json']);
       let detectResult = null;
-      if (skipEligibleModes.has(panelMode)) {
-        try {
-          detectResult = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
-            type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS',
-            source: 'background',
-            payload: { timeoutMs: 8000 },
-          });
-        } catch (error) {
-          await addLog(`步骤 6：Plus 状态探测失败（${error?.message || error}），按常规流程继续。`, 'warn');
-          detectResult = null;
-        }
-      } else {
-        await addLog(`步骤 6：当前 panelMode=${panelMode || 'unknown'} 不支持跳过 checkout，按常规流程继续。`, 'info');
+      try {
+        detectResult = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
+          type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS',
+          source: 'background',
+          payload: { buttonWaitMs: 5000, badgeWaitAfterButtonMs: 1500 },
+        });
+      } catch (error) {
+        await addLog(`步骤 6：账号状态探测失败（${error?.message || error}），按常规流程继续。`, 'warn');
+        detectResult = null;
       }
-      if (detectResult?.isPlus) {
+      if (detectResult?.accountDeactivated) {
+        const errorCode = detectResult.errorCode || 'account_deactivated';
+        await addLog(`步骤 6：检测到 ChatGPT 身份验证错误（${errorCode}），账号已被删除或停用，终止流程。`, 'error');
+        throw new Error(`ACCOUNT_DEACTIVATED::${errorCode}`);
+      }
+      if (detectResult?.isPlus && skipEligibleModes.has(panelMode)) {
         await addLog(
-          `步骤 6：检测到账户已是 Plus（${detectResult?.planText || detectResult?.ariaLabel || ''}），跳过 checkout/payment 直接进入下一步。`,
+          `步骤 6：检测到账户已是 Plus（来源 ${detectResult?.planSource || 'unknown'}，标识 ${detectResult?.planText || detectResult?.ariaLabel || ''}），跳过 checkout/payment 直接进入下一步。`,
           'ok'
         );
         await setState({
@@ -1356,6 +1357,18 @@
           skippedDueToAlreadyPlus: true,
         });
         return;
+      }
+      if (detectResult?.isPlus && !skipEligibleModes.has(panelMode)) {
+        await addLog(
+          `步骤 6：检测到账户已是 Plus，但当前 panelMode=${panelMode || 'unknown'} 不支持跳过 checkout，按常规流程继续。`,
+          'info'
+        );
+      }
+      if (detectResult && !detectResult.isPlus && !detectResult.accountDeactivated) {
+        await addLog(
+          `步骤 6：账号状态探测结果 found=${detectResult.found} hasBadge=${detectResult.hasBadge || false} planText=${detectResult.planText || ''} ariaLabel=${detectResult.ariaLabel || ''}，按常规 checkout 流程继续。`,
+          'info'
+        );
       }
 
       const useCloudCheckoutConversion = isPlusCheckoutCloudConversionEnabled(state, paymentMethod);

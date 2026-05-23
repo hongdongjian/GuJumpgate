@@ -98,7 +98,7 @@ test('local-cpa-json-no-rt + isPlus=true 同样跳过 checkout', async () => {
   assert.equal(completion?.payload?.skippedDueToAlreadyPlus, true);
 });
 
-test('普通 cpa 模式即使 isPlus=true 也不发起探测，按常规 checkout 流程继续', async () => {
+test('普通 cpa 模式即使 isPlus=true 也不跳过 checkout，仍发起探测但按常规流程继续', async () => {
   const { executor, sentMessages, events } = createExecutorWith({
     detectResponse: { found: true, isPlus: true, planText: 'Plus' },
   });
@@ -106,7 +106,7 @@ test('普通 cpa 模式即使 isPlus=true 也不发起探测，按常规 checkou
   await executor.executePlusCheckoutCreate({ panelMode: 'cpa' });
 
   const detectCalls = sentMessages.filter((m) => m.type === 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS');
-  assert.equal(detectCalls.length, 0, '非 local-* 模式不应发起 Plus 探测');
+  assert.equal(detectCalls.length, 1, '探测仍应发起（用于 deactivated 检查）');
 
   const createCalls = sentMessages.filter((m) => m.type === 'CREATE_PLUS_CHECKOUT');
   assert.equal(createCalls.length, 1, '应继续走常规 checkout 创建');
@@ -171,7 +171,35 @@ test('探测调用抛错时按常规流程继续（不中断）', async () => {
 
   assert.equal(sentMessages.filter((m) => m.type === 'CREATE_PLUS_CHECKOUT').length, 1);
   const warnLog = events.find(
-    (e) => e.type === 'log' && /Plus 状态探测失败/.test(e.message) && e.level === 'warn'
+    (e) => e.type === 'log' && /账号状态探测失败/.test(e.message) && e.level === 'warn'
   );
   assert.ok(warnLog, '应输出探测失败 warn 日志');
+});
+
+test('检测到 account_deactivated 应抛错并不调用 CREATE_PLUS_CHECKOUT', async () => {
+  const { executor, sentMessages, events } = createExecutorWith({
+    detectResponse: { found: true, accountDeactivated: true, errorCode: 'account_deactivated', isPlus: false },
+  });
+
+  await assert.rejects(
+    () => executor.executePlusCheckoutCreate({ panelMode: 'local-sub2api-json' }),
+    /ACCOUNT_DEACTIVATED::account_deactivated/
+  );
+
+  assert.equal(sentMessages.filter((m) => m.type === 'CREATE_PLUS_CHECKOUT').length, 0, '不应继续创建 checkout');
+  const completion = events.find((e) => e.type === 'complete');
+  assert.equal(completion, undefined, '不应完成 plus-checkout-create');
+  const errLog = events.find((e) => e.type === 'log' && /身份验证错误/.test(e.message));
+  assert.ok(errLog, '应记录身份验证错误日志');
+});
+
+test('检测到 deactivated 在普通 cpa 模式同样抛错', async () => {
+  const { executor, sentMessages } = createExecutorWith({
+    detectResponse: { found: true, accountDeactivated: true, errorCode: 'account_deactivated' },
+  });
+  await assert.rejects(
+    () => executor.executePlusCheckoutCreate({ panelMode: 'cpa' }),
+    /ACCOUNT_DEACTIVATED/
+  );
+  assert.equal(sentMessages.filter((m) => m.type === 'CREATE_PLUS_CHECKOUT').length, 0);
 });
