@@ -1227,7 +1227,8 @@
           const fallback = winner.fallback;
           if (fallback.accountDeactivated) {
             const errorCode = fallback.errorCode || 'account_deactivated';
-            await addLog(`步骤 4：检测到 ChatGPT 身份验证错误（${errorCode}），账号已被删除或停用，终止流程。`, 'error');
+            const urlPart = fallback.url ? ` 当前页面：${fallback.url}` : '';
+            await addLog(`步骤 4：检测到 ChatGPT 身份验证错误（${errorCode}），账号已被删除或停用，终止流程。${urlPart}`, 'error');
             throw new Error(`ACCOUNT_DEACTIVATED::${errorCode}`);
           }
           const fallbackLabel = fallback.reason === 'chatgpt_home'
@@ -1280,7 +1281,8 @@
             });
             if (fallback.accountDeactivated) {
               const errorCode = fallback.errorCode || 'account_deactivated';
-              await addLog(`步骤 4：检测到 ChatGPT 身份验证错误（${errorCode}），账号已被删除或停用，终止流程。`, 'error');
+              const urlPart = fallback.url ? ` 当前页面：${fallback.url}` : '';
+              await addLog(`步骤 4：检测到 ChatGPT 身份验证错误（${errorCode}），账号已被删除或停用，终止流程。${urlPart}`, 'error');
               throw new Error(`ACCOUNT_DEACTIVATED::${errorCode}`);
             }
             if (fallback.success) {

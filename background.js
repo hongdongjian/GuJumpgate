@@ -9130,6 +9130,11 @@ function isSignupUserAlreadyExistsFailure(error) {
   return /SIGNUP_USER_ALREADY_EXISTS::|user_already_exists/i.test(message);
 }
 
+function isAccountDeactivatedFailure(error) {
+  const message = getErrorMessage(error);
+  return /ACCOUNT_DEACTIVATED::|account[_-](?:deactivated|disabled|removed)/i.test(message);
+}
+
 function isStep4Route405RecoveryLimitFailure(error) {
   const message = getErrorMessage(error);
   return /STEP4_405_RECOVERY_LIMIT::|步骤\s*4：检测到\s*405\s*错误页面，已连续点击“重试”恢复/i.test(message);
@@ -12697,6 +12702,10 @@ async function runAutoSequenceFromNodeGraph(startNodeId, context = {}) {
 
       if (nodeId === 'fetch-signup-code') {
         if (isSignupUserAlreadyExistsFailure(err)) {
+          throw err;
+        }
+        if (isAccountDeactivatedFailure(err)) {
+          await addLog(`节点 fetch-signup-code：ChatGPT 账号已停用/删除，停止自动重试。原因：${getErrorMessage(err)}`, 'error');
           throw err;
         }
         if (isMail2925ThreadTerminatedError(err)) {
