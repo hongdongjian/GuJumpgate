@@ -14,6 +14,8 @@ const PAYPAL_HOSTED_STAGE_DEAD_END = 'dead_end';
 const PAYPAL_HOSTED_STAGE_UNKNOWN = 'unknown';
 const PAYPAL_HOSTED_HERMES_AUTORUN_SENTINEL = '__MULTIPAGE_PAYPAL_HOSTED_HERMES_AUTORUN__';
 const PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL = '__MULTIPAGE_PAYPAL_HOSTED_GUEST_SUBMIT__';
+const PAYPAL_HOSTED_GUEST_SUBMIT_GENERATION = '__MULTIPAGE_PAYPAL_HOSTED_GUEST_GEN__';
+const PAYPAL_HOSTED_GUEST_SUBMIT_INFLIGHT = '__MULTIPAGE_PAYPAL_HOSTED_GUEST_INFLIGHT__';
 const PAYPAL_HOSTED_REVIEW_SUBMITTED_STORAGE_KEY = 'multipage_paypal_hosted_review_submitted';
 
 if (document.documentElement.getAttribute(PAYPAL_FLOW_LISTENER_SENTINEL) !== '1') {
@@ -364,6 +366,27 @@ function selectHostedOptionByIdText(id, text) {
   return true;
 }
 
+function findHostedPageLevelCardError() {
+  const containers = Array.from(document.querySelectorAll(
+    '#page-level-error-message, [data-testid="page-level-error-container"]'
+  ));
+  for (const container of containers) {
+    if (!isVisibleElement(container)) {
+      continue;
+    }
+    const messageEl = container.querySelector('[data-error-key], [data-testid="page-level-error-message"]')
+      || container;
+    const errorKey = String(messageEl?.getAttribute?.('data-error-key') || '').trim();
+    const text = normalizeText(messageEl?.textContent || container.textContent || '');
+    const cardKey = /card/i.test(errorKey);
+    const cardText = /add this card|add the card|card.*(?:incorrect|details|number)|different card|无法添加|不能添加|银行卡|卡号/i.test(text);
+    if (cardKey || cardText) {
+      return { element: container, errorKey, text };
+    }
+  }
+  return null;
+}
+
 function removeHostedCaptchaArtifacts() {
   let removed = false;
   const selectors = [
@@ -486,8 +509,11 @@ function dispatchHostedGenericClick(button) {
   button.dispatchEvent(new MouseEvent('click', eventInit));
 }
 
-async function clickHostedGenericSubmitButton(retries = 0) {
+async function clickHostedGenericSubmitButton(retries = 0, isAborted = null) {
   throwIfStopped();
+  if (typeof isAborted === 'function' && isAborted()) {
+    return { clicked: false, aborted: true };
+  }
   removeHostedCaptchaArtifacts();
   const button = findHostedGuestSubmitButton() || findEmailNextButton() || findLoginNextButton();
   if (!button) {
@@ -495,7 +521,7 @@ async function clickHostedGenericSubmitButton(retries = 0) {
       throw new Error('PayPal hosted checkout 未找到可点击的继续/提交按钮。');
     }
     await sleep(1000);
-    return clickHostedGenericSubmitButton(retries + 1);
+    return clickHostedGenericSubmitButton(retries + 1, isAborted);
   }
 
   const buttonText = normalizeText(button.textContent || '');
@@ -504,7 +530,7 @@ async function clickHostedGenericSubmitButton(retries = 0) {
       throw new Error('PayPal hosted checkout 按钮长时间处于 disabled 状态。');
     }
     await sleep(1000);
-    return clickHostedGenericSubmitButton(retries + 1);
+    return clickHostedGenericSubmitButton(retries + 1, isAborted);
   }
 
   const rect = button.getBoundingClientRect();
@@ -513,9 +539,12 @@ async function clickHostedGenericSubmitButton(retries = 0) {
       throw new Error('PayPal hosted checkout 按钮长时间不可见。');
     }
     await sleep(1000);
-    return clickHostedGenericSubmitButton(retries + 1);
+    return clickHostedGenericSubmitButton(retries + 1, isAborted);
   }
 
+  if (typeof isAborted === 'function' && isAborted()) {
+    return { clicked: false, aborted: true };
+  }
   dispatchHostedGenericClick(button);
   await sleep(1000);
   throwIfStopped();
@@ -540,7 +569,7 @@ async function clickHostedGenericSubmitButton(retries = 0) {
       };
     }
     await sleep(2000);
-    return clickHostedGenericSubmitButton(retries + 1);
+    return clickHostedGenericSubmitButton(retries + 1, isAborted);
   }
 
   return {
@@ -607,6 +636,32 @@ async function fillHostedGuestCheckout(payload = {}) {
   await waitForDocumentComplete();
   throwIfStopped();
   const rootScope = typeof window !== 'undefined' ? window : globalThis;
+  const cardError = findHostedPageLevelCardError();
+  if (cardError && !payload.cardRefreshed) {
+    log(`PayPal hosted checkout：检测到卡支付错误「${cardError.text || cardError.errorKey || 'cardGenericError'}」，请求后台刷新卡资料，作废历史提交链路。`, 'warn');
+    rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_GENERATION] = (Number(rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_GENERATION]) || 0) + 1;
+    rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_INFLIGHT] = null;
+    rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
+    return {
+      stage: PAYPAL_HOSTED_STAGE_GUEST_CHECKOUT,
+      submitted: false,
+      cardErrorDetected: true,
+      cardRefreshRequested: true,
+      errorKey: cardError.errorKey || '',
+      errorText: cardError.text || '',
+    };
+  }
+  if (cardError && payload.cardRefreshed) {
+    log(`PayPal hosted checkout：使用 background 已刷新的卡资料重试。`, 'info');
+    rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_GENERATION] = (Number(rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_GENERATION]) || 0) + 1;
+    rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_INFLIGHT] = null;
+    rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
+    try {
+      cardError.element?.remove?.();
+    } catch {
+      // Ignore if the error banner cannot be removed.
+    }
+  }
   if (rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL]) {
     return {
       stage: PAYPAL_HOSTED_STAGE_GUEST_CHECKOUT,
@@ -628,15 +683,15 @@ async function fillHostedGuestCheckout(payload = {}) {
     await sleep(3000);
   }
 
-  const card = buildHostedVisaCard();
+  const fallbackCard = buildHostedVisaCard();
   const email = normalizeText(payload.email || buildHostedRandomEmail());
   const phone = normalizeText(payload.phone || PAYPAL_HOSTED_DEFAULT_PHONE);
   const password = String(payload.password || buildHostedRandomPassword());
   const firstName = normalizeText(payload.firstName || 'James');
   const lastName = normalizeText(payload.lastName || 'Smith');
-  const cardNumber = String(payload.cardNumber || card.number).replace(/\s+/g, '');
-  const cardExpiry = normalizeText(payload.cardExpiry || card.expiry);
-  const cardCvv = normalizeText(payload.cardCvv || card.cvv);
+  const cardNumber = String(payload.cardNumber || fallbackCard.number).replace(/\s+/g, '');
+  const cardExpiry = normalizeText(payload.cardExpiry || fallbackCard.expiry);
+  const cardCvv = normalizeText(payload.cardCvv || fallbackCard.cvv);
   const address = payload.address && typeof payload.address === 'object' ? payload.address : {};
 
   if (!email || !password || !cardNumber || !cardExpiry || !cardCvv) {
@@ -659,26 +714,42 @@ async function fillHostedGuestCheckout(payload = {}) {
 
   if (!rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL]) {
     rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = true;
+    const submissionGeneration = Number(rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_GENERATION]) || 0;
+    rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_INFLIGHT] = submissionGeneration;
+    const isCurrentGeneration = () => (
+      rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_INFLIGHT] === submissionGeneration
+      && (Number(rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_GENERATION]) || 0) === submissionGeneration
+    );
+    const releaseIfCurrent = () => {
+      if (isCurrentGeneration()) {
+        rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_INFLIGHT] = null;
+        rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
+      }
+    };
     setTimeout(() => {
+      if (!isCurrentGeneration()) {
+        log(`PayPal hosted checkout guest submit：第 ${submissionGeneration} 代提交已被新一代作废，放弃点击。`, 'info');
+        return;
+      }
       if (typeof throwIfStopped === 'function') {
         try {
           throwIfStopped();
         } catch (error) {
-          rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
+          releaseIfCurrent();
           if (!isStopError(error)) {
             log(`PayPal hosted checkout guest submit 失败：${error?.message || error}`, 'warn');
           }
           return;
         }
       }
-      clickHostedGenericSubmitButton(0).catch((error) => {
+      clickHostedGenericSubmitButton(0, () => !isCurrentGeneration()).catch((error) => {
         if (isStopError(error)) {
           return;
         }
-        rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
+        releaseIfCurrent();
         log(`PayPal hosted checkout guest submit 失败：${error?.message || error}`, 'warn');
       }).finally(() => {
-        rootScope[PAYPAL_HOSTED_GUEST_SUBMIT_SENTINEL] = false;
+        releaseIfCurrent();
       });
     }, 500);
   }
@@ -1025,6 +1096,7 @@ function inspectPayPalState() {
     hasPasskeyPrompt: hasPasskeyPrompt(),
     hostedDeadEndVisible: hostedStage === PAYPAL_HOSTED_STAGE_DEAD_END || isPayPalHostedDeadEndPage(),
     hostedReviewConsentSubmitted: hasHostedReviewConsentSubmitted(),
+    hostedCardErrorVisible: Boolean(findHostedPageLevelCardError()),
     bodyTextPreview: normalizeText(document.body?.innerText || '').slice(0, 240),
   };
 }

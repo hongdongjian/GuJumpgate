@@ -710,7 +710,8 @@
 
         if (pageState.hostedStage === 'guest_checkout') {
           if (
-            guestCheckoutSubmitAttemptAt > 0
+            !pageState.hostedCardErrorVisible
+            && guestCheckoutSubmitAttemptAt > 0
             && Date.now() - guestCheckoutSubmitAttemptAt < HOSTED_CHECKOUT_PAYPAL_GUEST_RESUBMIT_COOLDOWN_MS
           ) {
             await sleepWithStop(1500);
@@ -719,15 +720,44 @@
           const runtimeConfig = await getHostedCheckoutRuntimeConfig();
           const configuredPhone = String(runtimeConfig?.phone || '').trim();
           await addLog(`步骤 6：当前 hosted checkout 电话配置为 ${configuredPhone || '(空，将回退默认值)'}。`, 'info');
+          let cardRefreshed = false;
+          if (pageState.hostedCardErrorVisible) {
+            const freshCard = buildHostedCheckoutVisaCard();
+            guestProfile = {
+              ...guestProfile,
+              cardNumber: freshCard.number,
+              cardExpiry: freshCard.expiry,
+              cardCvv: freshCard.cvv,
+            };
+            cardRefreshed = true;
+            await addLog('步骤 6：检测到 PayPal hosted checkout 卡支付错误（cardGenericError），已重新生成卡资料并立即重试。', 'warn');
+          }
           await addLog(`步骤 6：发送到 PayPal guest checkout 的 payload：${JSON.stringify({
             phone: String(runtimeConfig?.phone || guestProfile.phone || '').trim(),
             address: guestProfile.address || {},
+            cardRefreshed,
           })}`, 'info');
           await addLog('步骤 6：检测到 PayPal hosted checkout 卡支付页，正在填写卡资料并提交...', 'info');
-          await runHostedCheckoutPayPalStep(tabId, {
+          const submitResult = await runHostedCheckoutPayPalStep(tabId, {
             ...guestProfile,
             phone: String(runtimeConfig?.phone || guestProfile.phone || '').trim(),
+            cardRefreshed,
           });
+          if (submitResult?.cardRefreshRequested) {
+            const freshCard = buildHostedCheckoutVisaCard();
+            guestProfile = {
+              ...guestProfile,
+              cardNumber: freshCard.number,
+              cardExpiry: freshCard.expiry,
+              cardCvv: freshCard.cvv,
+            };
+            await addLog('步骤 6：content 侧报告卡支付错误且本轮卡未刷新，已重新生成卡资料并立即重试。', 'warn');
+            await runHostedCheckoutPayPalStep(tabId, {
+              ...guestProfile,
+              phone: String(runtimeConfig?.phone || guestProfile.phone || '').trim(),
+              cardRefreshed: true,
+            });
+          }
           guestCheckoutSubmitAttemptAt = Date.now();
           await sleepWithStop(1500);
           continue;
