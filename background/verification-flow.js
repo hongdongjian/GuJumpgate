@@ -177,6 +177,26 @@
       }
     }
 
+    async function isAccountDeactivatedPage(tabId) {
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId, allFrames: false },
+          func: () => {
+            const text = String(document.body?.textContent || '');
+            const match = text.match(/account[_-]deactivated|account[_-]disabled|account[_-]removed/i);
+            return match ? match[0].toLowerCase() : '';
+          },
+        });
+        for (const entry of results || []) {
+          const code = String(entry?.result || '').trim();
+          if (code) return code;
+        }
+      } catch {
+        // 注入失败（页面尚未就绪 / 受限页）忽略，等下一轮
+      }
+      return '';
+    }
+
     async function detectStep4PostSubmitFallback(tabId, options = {}) {
       const timeoutMs = Math.max(1000, Number(options.timeoutMs) || 8000);
       const pollIntervalMs = Math.max(100, Number(options.pollIntervalMs) || 250);
@@ -206,6 +226,17 @@
               success: true,
               reason: 'signup_profile',
               skipProfileStep: false,
+              url: currentUrl,
+            };
+          }
+
+          const deactivatedCode = await isAccountDeactivatedPage(tabId);
+          if (deactivatedCode) {
+            return {
+              success: false,
+              accountDeactivated: true,
+              errorCode: deactivatedCode,
+              reason: 'account_deactivated',
               url: currentUrl,
             };
           }
@@ -1140,21 +1171,118 @@
       let result;
       const shouldAvoidReplaySubmit = step === 8;
       if (typeof sendToContentScriptResilient === 'function' && !shouldAvoidReplaySubmit) {
-        try {
-          result = await sendToContentScriptResilient('signup-page', message, {
-            timeoutMs: Math.max(baseResponseTimeoutMs + 15000, 30000),
-            retryDelayMs: 700,
-            responseTimeoutMs: baseResponseTimeoutMs,
-            logMessage: '认证页正在切换，等待页面重新就绪后继续确认验证码提交结果...',
-            logStep: completionStep,
-            logStepKey: step === 4 ? 'fetch-signup-code' : 'fetch-login-code',
-          });
-        } catch (err) {
+        const resilientPromise = sendToContentScriptResilient('signup-page', message, {
+          timeoutMs: Math.max(baseResponseTimeoutMs + 15000, 30000),
+          retryDelayMs: 700,
+          responseTimeoutMs: baseResponseTimeoutMs,
+          logMessage: '认证页正在切换，等待页面重新就绪后继续确认验证码提交结果...',
+          logStep: completionStep,
+          logStepKey: step === 4 ? 'fetch-signup-code' : 'fetch-login-code',
+        }).then(
+          (value) => ({ kind: 'resilient', value }),
+          (error) => ({ kind: 'resilient', error })
+        );
+
+        // 并行 URL race：页面跳走后 content script 重连一定失败，30s 重试是浪费；
+        // 同时轮询 tab URL，识别到成功页面立即短路。
+        let raceCancelled = false;
+        let urlRacePromise = null;
+        if (step === 4 || step === 8) {
+          urlRacePromise = (async () => {
+            const raceTimeoutMs = Math.max(baseResponseTimeoutMs + 15000, 30000);
+            const startedAt = Date.now();
+            while (!raceCancelled && Date.now() - startedAt < raceTimeoutMs) {
+              try {
+                if (step === 4) {
+                  const fallback = await detectStep4PostSubmitFallback(signupTabId, {
+                    timeoutMs: 1500,
+                    pollIntervalMs: 250,
+                  });
+                  if (fallback.success || fallback.accountDeactivated) return { kind: 'fallback4', fallback };
+                } else {
+                  const fallback = await detectStep8PostSubmitFallback({
+                    step,
+                    timeoutMs: 1500,
+                    pollIntervalMs: 250,
+                  });
+                  if (fallback.success || fallback.invalidCode || fallback.restartStep7) {
+                    return { kind: 'fallback8', fallback };
+                  }
+                }
+              } catch {
+                // 忽略瞬时错误继续轮询
+              }
+              await sleepWithStop(250);
+            }
+            return { kind: 'race-timeout' };
+          })();
+        }
+
+        const winner = urlRacePromise
+          ? await Promise.race([resilientPromise, urlRacePromise])
+          : await resilientPromise;
+        raceCancelled = true;
+
+        if (winner?.kind === 'fallback4') {
+          const fallback = winner.fallback;
+          if (fallback.accountDeactivated) {
+            const errorCode = fallback.errorCode || 'account_deactivated';
+            await addLog(`步骤 4：检测到 ChatGPT 身份验证错误（${errorCode}），账号已被删除或停用，终止流程。`, 'error');
+            throw new Error(`ACCOUNT_DEACTIVATED::${errorCode}`);
+          }
+          const fallbackLabel = fallback.reason === 'chatgpt_home'
+            ? 'ChatGPT 已登录首页'
+            : '注册资料页';
+          await addLog(`步骤 4：验证码提交后页面已切换到${fallbackLabel}，按提交成功继续。`, 'warn');
+          return {
+            success: true,
+            assumed: true,
+            transportRecovered: true,
+            skipProfileStep: Boolean(fallback.skipProfileStep),
+            url: fallback.url,
+          };
+        }
+        if (winner?.kind === 'fallback8') {
+          const fallback = winner.fallback;
+          if (fallback.success) {
+            if (fallback.addPhonePage) {
+              await addLog('验证码提交后通信中断，但页面已进入手机号验证页，按提交成功继续。', 'warn', {
+                step: completionStep,
+                stepKey: 'fetch-login-code',
+              });
+            } else {
+              await addLog('验证码提交后通信中断，但页面已进入 OAuth 授权页，按提交成功继续。', 'warn', {
+                step: completionStep,
+                stepKey: 'fetch-login-code',
+              });
+            }
+            return {
+              success: true,
+              assumed: true,
+              transportRecovered: true,
+              addPhonePage: Boolean(fallback.addPhonePage),
+              url: fallback.url || '',
+            };
+          }
+          if (fallback.restartStep7) {
+            const urlPart = fallback.url ? ` URL: ${fallback.url}` : '';
+            throw new Error(`STEP8_RESTART_STEP7::步骤 ${completionStep}：验证码提交后认证页进入登录超时报错页，请回到步骤 ${authLoginStep} 重新开始。${urlPart}`.trim());
+          }
+        }
+
+        // resilient send 先返回（成功或失败）
+        if (winner?.kind === 'resilient' && winner.error) {
+          const err = winner.error;
           if (step === 4 && isRetryableVerificationTransportError(err)) {
             const fallback = await detectStep4PostSubmitFallback(signupTabId, {
               timeoutMs: 20000,
               pollIntervalMs: 300,
             });
+            if (fallback.accountDeactivated) {
+              const errorCode = fallback.errorCode || 'account_deactivated';
+              await addLog(`步骤 4：检测到 ChatGPT 身份验证错误（${errorCode}），账号已被删除或停用，终止流程。`, 'error');
+              throw new Error(`ACCOUNT_DEACTIVATED::${errorCode}`);
+            }
             if (fallback.success) {
               const fallbackLabel = fallback.reason === 'chatgpt_home'
                 ? 'ChatGPT 已登录首页'
@@ -1201,6 +1329,9 @@
             }
           }
           throw err;
+        }
+        if (winner?.kind === 'resilient') {
+          result = winner.value;
         }
       } else if (shouldAvoidReplaySubmit) {
         try {
