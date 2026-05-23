@@ -321,6 +321,7 @@ const inputOutlookEmailPlusProjectKey = document.getElementById('input-outlook-e
 const btnSaveOutlookEmailPlus = document.getElementById('btn-save-outlook-email-plus');
 const btnTestOutlookEmailPlus = document.getElementById('btn-test-outlook-email-plus');
 const btnResetOutlookEmailPlusPool = document.getElementById('btn-reset-outlook-email-plus-pool');
+const inputOutlookEmailPlusManualEmail = document.getElementById('input-outlook-email-plus-manual-email');
 const mail2925Section = document.getElementById('mail2925-section');
 const luckmailSection = document.getElementById('luckmail-section');
 const icloudSection = document.getElementById('icloud-section');
@@ -9800,6 +9801,9 @@ function applySettingsState(state) {
   if (inputOutlookEmailPlusProjectKey) {
     inputOutlookEmailPlusProjectKey.value = state?.outlookEmailPlusConfig?.defaultProjectKey || '';
   }
+  if (inputOutlookEmailPlusManualEmail) {
+    inputOutlookEmailPlusManualEmail.value = state?.outlookEmailPlusManualEmail || '';
+  }
   if (typeof inputHotmailAliasEnabled !== 'undefined' && inputHotmailAliasEnabled) {
     inputHotmailAliasEnabled.checked = normalizeHotmailAliasEnabledValue(state?.hotmailAliasEnabled);
   }
@@ -13209,22 +13213,34 @@ function collectOutlookEmailPlusConfigFromInputs() {
 
 btnSaveOutlookEmailPlus?.addEventListener('click', async () => {
   const payload = collectOutlookEmailPlusConfigFromInputs();
-  if (!payload.serverUrl) {
-    showToast('请填写 outlookEmailPlus 服务端地址。', 'warn');
-    return;
-  }
-  if (!payload.apiKey) {
-    showToast('请填写 outlookEmailPlus API Key。', 'warn');
-    return;
+  const manualEmail = (inputOutlookEmailPlusManualEmail?.value || '').trim();
+  const hasAnyConfig = Boolean(payload.serverUrl || payload.apiKey || payload.defaultProjectKey);
+  if (hasAnyConfig) {
+    if (!payload.serverUrl) {
+      showToast('请填写 outlookEmailPlus 服务端地址。', 'warn');
+      return;
+    }
+    if (!payload.apiKey) {
+      showToast('请填写 outlookEmailPlus API Key。', 'warn');
+      return;
+    }
   }
   btnSaveOutlookEmailPlus.disabled = true;
   try {
-    const response = await chrome.runtime.sendMessage({
-      type: 'UPSERT_OUTLOOK_EMAIL_PLUS_CONFIG',
+    if (hasAnyConfig) {
+      const response = await chrome.runtime.sendMessage({
+        type: 'UPSERT_OUTLOOK_EMAIL_PLUS_CONFIG',
+        source: 'sidepanel',
+        payload,
+      });
+      if (response?.error) throw new Error(response.error);
+    }
+    const manualResponse = await chrome.runtime.sendMessage({
+      type: 'UPSERT_OUTLOOK_EMAIL_PLUS_MANUAL_EMAIL',
       source: 'sidepanel',
-      payload,
+      payload: { manualEmail },
     });
-    if (response?.error) throw new Error(response.error);
+    if (manualResponse?.error) throw new Error(manualResponse.error);
     showToast('outlookEmailPlus 配置已保存。', 'success', 1800);
   } catch (err) {
     showToast(`保存 outlookEmailPlus 配置失败：${err.message}`, 'error');

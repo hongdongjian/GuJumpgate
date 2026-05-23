@@ -162,3 +162,56 @@ test('isAliasCapacityExhausted respects per-account max', async () => {
   };
   assert.equal(provider.isAliasCapacityExhausted(usageBag, account), true);
 });
+
+test('manual email mode 旁路 pool：ensureEmail 返回手动邮箱不调 claim', async () => {
+  const { provider, bag, completed, released } = makeProvider({
+    initialState: {
+      ...baseConfig,
+      outlookEmailPlusManualEmail: 'user@example.com',
+    },
+  });
+  const result = await provider.ensureEmail();
+  assert.equal(result.email, 'user@example.com');
+  assert.equal(result.manual, true);
+  assert.equal(result.account, null);
+  assert.equal(completed.length, 0);
+  assert.equal(released.length, 0);
+  assert.equal(bag.snapshot().outlookEmailPlusAccount, undefined);
+});
+
+test('manual email mode：即使遗留 pool account，markAliasUsed/finalize/release 全部 no-op', async () => {
+  const staleAccount = { accountId: 99, email: 'stale@hotmail.com', claimToken: 'tok' };
+  const { provider, completed, released } = makeProvider({
+    initialState: {
+      ...baseConfig,
+      outlookEmailPlusManualEmail: 'manual@example.com',
+      outlookEmailPlusAccount: staleAccount,
+    },
+  });
+
+  const markResult = await provider.markAliasUsed('manual@example.com', 'flow_completed');
+  assert.equal(markResult, null, 'markAliasUsed 必须 no-op');
+
+  const finalizeResult = await provider.finalizeCurrentAccount('success', 'done');
+  assert.equal(finalizeResult, null, 'finalizeCurrentAccount 必须 no-op');
+  assert.equal(completed.length, 0, '不应触发 claim-complete');
+
+  const releaseResult = await provider.releaseCurrentAccount('test');
+  assert.equal(releaseResult, null, 'releaseCurrentAccount 必须 no-op');
+  assert.equal(released.length, 0, '不应触发 claim-release');
+});
+
+test('非 manual mode：markAliasUsed 仍按原逻辑写入 alias usage', async () => {
+  const account = { accountId: 11, email: 'base@hotmail.com', claimToken: 'tk' };
+  const { provider, bag } = makeProvider({
+    initialState: {
+      ...baseConfig,
+      outlookEmailPlusAccount: account,
+    },
+  });
+  const result = await provider.markAliasUsed('base+PayPal1@hotmail.com', 'registered');
+  assert.ok(result, '应返回 alias entry');
+  assert.equal(result.used, true);
+  const usage = bag.snapshot().outlookEmailPlusAliasUsage;
+  assert.equal(usage['11'].aliases['base+paypal1@hotmail.com'].used, true);
+});

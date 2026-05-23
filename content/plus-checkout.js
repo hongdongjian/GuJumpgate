@@ -64,6 +64,7 @@ if (document.documentElement.getAttribute(PLUS_CHECKOUT_LISTENER_SENTINEL) !== '
       || message.type === 'PLUS_CHECKOUT_ENSURE_BILLING_ADDRESS'
       || message.type === 'PLUS_CHECKOUT_CLICK_SUBSCRIBE'
       || message.type === 'PLUS_CHECKOUT_GET_STATE'
+      || message.type === 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS'
     ) {
       resetStopState();
       handlePlusCheckoutCommand(message).then((result) => {
@@ -106,6 +107,8 @@ async function handlePlusCheckoutCommand(message) {
       return clickPlusSubscribe(message.payload || {});
     case 'PLUS_CHECKOUT_GET_STATE':
       return inspectPlusCheckoutState(message.payload || {});
+    case 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS':
+      return detectAccountAlreadyPlus(message.payload || {});
     default:
       throw new Error(`plus-checkout.js 不处理消息：${message.type}`);
   }
@@ -2115,6 +2118,51 @@ async function readChatGptSessionAccessToken() {
     session,
     accessToken: String(session?.accessToken || '').trim(),
   };
+}
+
+async function detectAccountAlreadyPlus(options = {}) {
+  const timeoutMs = Math.max(0, Math.floor(Number(options?.timeoutMs) || 8000));
+  const startedAt = Date.now();
+  const PLAN_TOKENS = ['Plus', 'Pro', 'Team', 'Enterprise'];
+
+  function isPlanToken(text) {
+    const trimmed = String(text || '').trim();
+    if (!trimmed) return { isPlan: false, token: '' };
+    for (const token of PLAN_TOKENS) {
+      if (trimmed === token || new RegExp(`^${token}(\\s|$)`).test(trimmed)) {
+        return { isPlan: true, token };
+      }
+    }
+    return { isPlan: false, token: '' };
+  }
+
+  function probe() {
+    const btn = document.querySelector('[data-testid="accounts-profile-button"]');
+    if (!btn) return { found: false, isPlus: false };
+    const badgeCandidates = Array.from(btn.querySelectorAll('span[dir="auto"] span'));
+    let detectedToken = '';
+    for (const candidate of badgeCandidates) {
+      const result = isPlanToken(candidate.textContent);
+      if (result.isPlan) {
+        detectedToken = result.token;
+        break;
+      }
+    }
+    const isPlus = detectedToken === 'Plus';
+    return {
+      found: true,
+      isPlus,
+      planText: detectedToken,
+      ariaLabel: String(btn.getAttribute('aria-label') || ''),
+    };
+  }
+
+  let last = probe();
+  while (!last.found && Date.now() - startedAt < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    last = probe();
+  }
+  return last;
 }
 
 async function inspectPlusCheckoutState(options = {}) {

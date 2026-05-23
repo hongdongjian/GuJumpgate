@@ -1722,6 +1722,19 @@
           return { ok: true, config: normalized };
         }
 
+        case 'UPSERT_OUTLOOK_EMAIL_PLUS_MANUAL_EMAIL': {
+          const manualEmail = String(message.payload?.manualEmail || '').trim();
+          await setPersistentSettings({ outlookEmailPlusManualEmail: manualEmail });
+          await setState({ outlookEmailPlusManualEmail: manualEmail });
+          broadcastDataUpdate({ outlookEmailPlusManualEmail: manualEmail });
+          if (manualEmail) {
+            await addLog(`outlookEmailPlus 已设置手动邮箱：${manualEmail}（旁路 pool）。`, 'info');
+          } else {
+            await addLog('outlookEmailPlus 手动邮箱已清空，恢复使用 pool 自动分配。', 'info');
+          }
+          return { ok: true, manualEmail };
+        }
+
         case 'TEST_OUTLOOK_EMAIL_PLUS_CONFIG': {
           if (!outlookEmailPlusPool || typeof outlookEmailPlusPool.getHealth !== 'function') {
             throw new Error('outlookEmailPlus 模块未加载。');

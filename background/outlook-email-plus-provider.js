@@ -128,6 +128,9 @@
 
     async function finalizeCurrentAccount(result = 'success', detail = '') {
       const state = await getState();
+      if (String(state?.outlookEmailPlusManualEmail || '').trim()) {
+        return null;
+      }
       const account = state?.outlookEmailPlusAccount;
       if (!account?.accountId || !account?.claimToken) {
         return null;
@@ -145,6 +148,9 @@
 
     async function releaseCurrentAccount(reason = '') {
       const state = await getState();
+      if (String(state?.outlookEmailPlusManualEmail || '').trim()) {
+        return null;
+      }
       const account = state?.outlookEmailPlusAccount;
       if (!account?.accountId || !account?.claimToken) {
         return null;
@@ -188,6 +194,20 @@
 
     async function ensureEmail(options = {}) {
       const state = await getState();
+      const manualEmail = String(state?.outlookEmailPlusManualEmail || '').trim();
+      if (manualEmail) {
+        log(`outlookEmailPlus：使用手动指定邮箱 ${manualEmail}（旁路 pool）。`, 'info');
+        if (typeof setEmailState === 'function') {
+          await setEmailState(manualEmail, { source: 'manual:outlook-email-plus' });
+        }
+        return {
+          account: null,
+          email: manualEmail,
+          registrationAliasEmail: manualEmail,
+          manual: true,
+        };
+      }
+
       const config = normalizeConfigFromState(state);
       if (!config.serverUrl || !config.apiKey) {
         throw new Error('请先在设置面板填写 outlookEmailPlus 的服务端地址与 API Key。');
@@ -227,6 +247,9 @@
 
     async function markAliasUsed(aliasEmail, reason = 'registered') {
       const state = await getState();
+      if (String(state?.outlookEmailPlusManualEmail || '').trim()) {
+        return null;
+      }
       const account = state.outlookEmailPlusAccount;
       if (!account) return null;
       return setUsageEntry(account, aliasEmail, { used: true, reason });

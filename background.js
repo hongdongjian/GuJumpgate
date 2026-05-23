@@ -1018,6 +1018,7 @@ const PERSISTED_SETTING_DEFAULTS = {
   outlookEmailPlusConfig: { serverUrl: '', apiKey: '', defaultProjectKey: '' },
   outlookEmailPlusAccount: null,
   outlookEmailPlusAliasUsage: {},
+  outlookEmailPlusManualEmail: '',
   luckmailApiKey: '',
   luckmailBaseUrl: DEFAULT_LUCKMAIL_BASE_URL,
   luckmailEmailType: DEFAULT_LUCKMAIL_EMAIL_TYPE,

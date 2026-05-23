@@ -1321,6 +1321,43 @@
         logMessage: '步骤 6：正在等待 ChatGPT 页面完成加载，再继续创建订阅页...',
       });
 
+      const panelMode = String(state?.panelMode || '').trim().toLowerCase();
+      const skipEligibleModes = new Set(['local-cpa-json-no-rt', 'local-sub2api-json']);
+      let detectResult = null;
+      if (skipEligibleModes.has(panelMode)) {
+        try {
+          detectResult = await sendTabMessageUntilStopped(tabId, PLUS_CHECKOUT_SOURCE, {
+            type: 'PLUS_CHECKOUT_DETECT_ACCOUNT_PLUS',
+            source: 'background',
+            payload: { timeoutMs: 8000 },
+          });
+        } catch (error) {
+          await addLog(`步骤 6：Plus 状态探测失败（${error?.message || error}），按常规流程继续。`, 'warn');
+          detectResult = null;
+        }
+      } else {
+        await addLog(`步骤 6：当前 panelMode=${panelMode || 'unknown'} 不支持跳过 checkout，按常规流程继续。`, 'info');
+      }
+      if (detectResult?.isPlus) {
+        await addLog(
+          `步骤 6：检测到账户已是 Plus（${detectResult?.planText || detectResult?.ariaLabel || ''}），跳过 checkout/payment 直接进入下一步。`,
+          'ok'
+        );
+        await setState({
+          plusCheckoutTabId: tabId,
+          plusCheckoutCountry: 'US',
+          plusCheckoutCurrency: 'USD',
+          plusCheckoutSource: 'skipped-already-plus',
+          plusReturnUrl: '',
+        });
+        await completeNodeFromBackground('plus-checkout-create', {
+          plusCheckoutCountry: 'US',
+          plusCheckoutCurrency: 'USD',
+          skippedDueToAlreadyPlus: true,
+        });
+        return;
+      }
+
       const useCloudCheckoutConversion = isPlusCheckoutCloudConversionEnabled(state, paymentMethod);
       let result = null;
       if (useCloudCheckoutConversion) {
