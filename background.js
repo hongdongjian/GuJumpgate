@@ -1017,8 +1017,9 @@ const PERSISTED_SETTING_DEFAULTS = {
   hotmailLocalBaseUrl: DEFAULT_HOTMAIL_LOCAL_BASE_URL,
   outlookEmailPlusConfig: { serverUrl: '', apiKey: '', defaultProjectKey: '' },
   outlookEmailPlusAccount: null,
-  outlookEmailPlusAliasUsage: {},
   outlookEmailPlusManualEmail: '',
+  outlookEmailPlusAliasEnabled: true,
+  outlookEmailPlusUsedEmails: {},
   luckmailApiKey: '',
   luckmailBaseUrl: DEFAULT_LUCKMAIL_BASE_URL,
   luckmailEmailType: DEFAULT_LUCKMAIL_EMAIL_TYPE,
@@ -2385,10 +2386,10 @@ async function markCurrentCustomEmailPoolEntryUsed(state = {}, options = {}) {
 async function markCurrentRegistrationAccountUsed(state = {}, options = {}) {
   const providedState = state && typeof state === 'object' ? state : {};
   const currentState = await getState();
-  const latestState = {
-    ...providedState,
-    ...(currentState && typeof currentState === 'object' ? currentState : {}),
-  };
+  const currentStateObject = currentState && typeof currentState === 'object' ? currentState : {};
+  const latestState = options.preferProvidedState
+    ? { ...currentStateObject, ...providedState }
+    : { ...providedState, ...currentStateObject };
   const reasonPrefix = String(options.logPrefix || '').trim() || '当前账号';
   let updated = false;
 
@@ -3224,6 +3225,10 @@ function normalizePersistentSettingValue(key, value) {
       return normalizeHotmailAccounts(value);
     case 'hotmailAliasEnabled':
       return Boolean(value);
+    case 'outlookEmailPlusAliasEnabled':
+      return Boolean(value);
+    case 'outlookEmailPlusUsedEmails':
+      return normalizeOutlookEmailPlusUsedEmails(value);
     case 'outlookAliasMaxPerAccount':
       return normalizeOutlookAliasMaxPerAccount(
         value,
@@ -4326,6 +4331,26 @@ function normalizeHotmailAliasUsage(value = {}) {
     normalized[key] = {
       aliases,
       updatedAt: Number.isFinite(Number(rawBucket?.updatedAt)) ? Number(rawBucket.updatedAt) : 0,
+    };
+  }
+  return normalized;
+}
+
+function normalizeOutlookEmailPlusUsedEmails(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  const normalized = {};
+  for (const [rawKey, rawEntry] of Object.entries(value)) {
+    const email = String(rawEntry?.email || rawKey || '').trim().toLowerCase();
+    if (!email) {
+      continue;
+    }
+    normalized[email] = {
+      email,
+      usedAt: Number.isFinite(Number(rawEntry?.usedAt)) ? Number(rawEntry.usedAt) : 0,
+      reason: String(rawEntry?.reason || '').trim(),
+      source: String(rawEntry?.source || 'auto').trim(),
     };
   }
   return normalized;
@@ -8881,7 +8906,7 @@ const outlookEmailPlusProvider = self.OutlookEmailPlusProvider?.createProvider?.
   buildOutlookPlusAliasEmail,
   buildOutlookPayPalAliasEmail,
   normalizeOutlookAliasMaxPerAccount,
-  normalizeHotmailAliasUsage,
+  normalizeOutlookEmailPlusUsedEmails,
 }) || null;
 
 const loggingStatus = self.MultiPageBackgroundLoggingStatus?.createLoggingStatus({
@@ -10564,6 +10589,16 @@ function doesNodeUseCompletionSignal(nodeId, state = {}) {
   return STEP_COMPLETION_SIGNAL_STEP_KEYS.has(executionKey || nodeId);
 }
 
+const SELF_MARKING_NODE_EXECUTION_KEYS = new Set(['platform-verify']);
+function doesNodeMarkRegistrationAccountViaStepData(nodeId, state = {}) {
+  const executionKey = getNodeExecutionKeyForState(nodeId, state);
+  if (SELF_MARKING_NODE_EXECUTION_KEYS.has(executionKey)) return true;
+  if (executionKey === 'plus-checkout-create') {
+    return getLastNodeIdForState(state) === nodeId;
+  }
+  return false;
+}
+
 function doesStepUseCompletionSignal(step, state = {}) {
   return doesNodeUseCompletionSignal(getNodeIdByStepForState(step, state), state);
 }
@@ -10663,6 +10698,14 @@ async function runCompletedNodeSideEffects(nodeId, payload, completionState, las
   await handleNodeData(nodeId, payload);
   if (nodeId === lastNodeId) {
     await appendAndBroadcastAccountRunRecord('success', completionState);
+    const stateForMark = completionState || await getState();
+    if (!doesNodeMarkRegistrationAccountViaStepData(nodeId, stateForMark)) {
+      await markCurrentRegistrationAccountUsed(stateForMark, {
+        logPrefix: '流程最终节点完成',
+        level: 'ok',
+        preferProvidedState: Boolean(completionState),
+      });
+    }
   }
 }
 
@@ -10691,9 +10734,12 @@ async function completeNodeFromBackground(nodeId, payload = {}) {
   await addLog('已完成', 'ok', { nodeId: normalizedNodeId });
 
   if (normalizedNodeId === lastNodeId) {
+    try {
+      await runCompletedNodeSideEffects(normalizedNodeId, payload, completionState, lastNodeId);
+    } catch (error) {
+      await reportCompletedNodeSideEffectError(normalizedNodeId, error);
+    }
     notifyNodeComplete(normalizedNodeId, payload);
-    void runCompletedNodeSideEffects(normalizedNodeId, payload, completionState, lastNodeId)
-      .catch((error) => reportCompletedNodeSideEffectError(normalizedNodeId, error));
     return;
   }
 

@@ -322,6 +322,13 @@ const btnSaveOutlookEmailPlus = document.getElementById('btn-save-outlook-email-
 const btnTestOutlookEmailPlus = document.getElementById('btn-test-outlook-email-plus');
 const btnResetOutlookEmailPlusPool = document.getElementById('btn-reset-outlook-email-plus-pool');
 const inputOutlookEmailPlusManualEmail = document.getElementById('input-outlook-email-plus-manual-email');
+const inputOutlookEmailPlusAliasEnabled = document.getElementById('input-outlook-email-plus-alias-enabled');
+const btnToggleOepUsedList = document.getElementById('btn-toggle-oep-used-list');
+const btnClearOepUsedEmails = document.getElementById('btn-clear-oep-used-emails');
+const inputOepAddUsedEmail = document.getElementById('input-oep-add-used-email');
+const btnOepAddUsedEmail = document.getElementById('btn-oep-add-used-email');
+const oepUsedListShell = document.getElementById('oep-used-list-shell');
+const oepUsedEmailsList = document.getElementById('oep-used-emails-list');
 const mail2925Section = document.getElementById('mail2925-section');
 const luckmailSection = document.getElementById('luckmail-section');
 const icloudSection = document.getElementById('icloud-section');
@@ -9804,6 +9811,12 @@ function applySettingsState(state) {
   if (inputOutlookEmailPlusManualEmail) {
     inputOutlookEmailPlusManualEmail.value = state?.outlookEmailPlusManualEmail || '';
   }
+  if (inputOutlookEmailPlusAliasEnabled) {
+    inputOutlookEmailPlusAliasEnabled.checked = state?.outlookEmailPlusAliasEnabled !== false;
+  }
+  if (typeof outlookEmailPlusManager !== 'undefined' && outlookEmailPlusManager) {
+    outlookEmailPlusManager.renderUsedEmails(state);
+  }
   if (typeof inputHotmailAliasEnabled !== 'undefined' && inputHotmailAliasEnabled) {
     inputHotmailAliasEnabled.checked = normalizeHotmailAliasEnabledValue(state?.hotmailAliasEnabled);
   }
@@ -12236,6 +12249,35 @@ const bindHotmailEvents = hotmailManager?.bindHotmailEvents
   || (() => { });
 bindHotmailEvents();
 
+const outlookEmailPlusManager = window.OutlookEmailPlusManager?.createOutlookEmailPlusManager({
+  state: {
+    getLatestState: () => latestState,
+    syncLatestState,
+  },
+  dom: {
+    btnToggleOepUsedList,
+    btnClearOepUsedEmails,
+    btnOepAddUsedEmail,
+    inputOepAddUsedEmail,
+    oepUsedListShell,
+    oepUsedEmailsList,
+  },
+  helpers: {
+    copyTextToClipboard,
+    escapeHtml,
+    openConfirmModal,
+    showToast,
+  },
+  runtime: {
+    sendMessage: (message) => chrome.runtime.sendMessage(message),
+  },
+  constants: {
+    displayTimeZone: DISPLAY_TIMEZONE,
+  },
+}) || null;
+outlookEmailPlusManager?.bindEvents();
+outlookEmailPlusManager?.initExpandedState();
+
 const payPalManager = window.SidepanelPayPalManager?.createPayPalManager({
   state: {
     getLatestState: () => latestState,
@@ -13241,6 +13283,15 @@ btnSaveOutlookEmailPlus?.addEventListener('click', async () => {
       payload: { manualEmail },
     });
     if (manualResponse?.error) throw new Error(manualResponse.error);
+    const aliasEnabled = inputOutlookEmailPlusAliasEnabled
+      ? Boolean(inputOutlookEmailPlusAliasEnabled.checked)
+      : true;
+    const aliasResponse = await chrome.runtime.sendMessage({
+      type: 'UPSERT_OUTLOOK_EMAIL_PLUS_ALIAS_ENABLED',
+      source: 'sidepanel',
+      payload: { aliasEnabled },
+    });
+    if (aliasResponse?.error) throw new Error(aliasResponse.error);
     showToast('outlookEmailPlus 配置已保存。', 'success', 1800);
   } catch (err) {
     showToast(`保存 outlookEmailPlus 配置失败：${err.message}`, 'error');
@@ -13272,7 +13323,7 @@ btnTestOutlookEmailPlus?.addEventListener('click', async () => {
 });
 
 btnResetOutlookEmailPlusPool?.addEventListener('click', async () => {
-  if (!confirm('清空 outlookEmailPlus 本地占用的邮箱与别名记录？')) {
+  if (!confirm('清空 outlookEmailPlus 当前占用的邮箱（不会清除已使用邮箱列表）？')) {
     return;
   }
   btnResetOutlookEmailPlusPool.disabled = true;
@@ -16069,6 +16120,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         if (selectMailProvider.value === 'hotmail-api') {
           inputEmail.value = getCurrentHotmailEmail();
         }
+      }
+      if (message.payload.outlookEmailPlusUsedEmails !== undefined) {
+        outlookEmailPlusManager?.renderUsedEmails(latestState);
       }
       if (message.payload.currentPayPalAccountId !== undefined || message.payload.paypalAccounts !== undefined) {
         renderPayPalAccounts();

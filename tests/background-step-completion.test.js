@@ -51,8 +51,8 @@ function extractFunction(name) {
   return source.slice(start, end);
 }
 
-function createApi(events, lastNodeId = 'platform-verify') {
-  return new Function('events', 'lastNodeId', `
+function createApi(events, lastNodeId = 'platform-verify', { selfMarking = false } = {}) {
+  return new Function('events', 'lastNodeId', 'selfMarking', `
 let stopRequested = false;
 const LOG_PREFIX = '[test]';
 const STOP_ERROR_MESSAGE = '流程已被用户停止。';
@@ -89,29 +89,44 @@ async function handleNodeData(nodeId, payload) {
 async function appendAndBroadcastAccountRunRecord(status, state) {
   events.push({ type: 'record', status, state });
 }
+async function markCurrentRegistrationAccountUsed(state, options) {
+  events.push({ type: 'mark', state, options });
+}
+function doesNodeMarkRegistrationAccountViaStepData() {
+  return selfMarking;
+}
 ${extractFunction('runCompletedNodeSideEffects')}
 ${extractFunction('reportCompletedNodeSideEffectError')}
 ${extractFunction('completeNodeFromBackground')}
 return { completeNodeFromBackground };
-`)(events, lastNodeId);
+`)(events, lastNodeId, selfMarking);
 }
 
-test('completeNodeFromBackground releases final node before slow post-completion side effects', async () => {
+test('completeNodeFromBackground finishes final-node side effects before signaling completion', async () => {
   const events = [];
-  const api = createApi(events, 'platform-verify');
+  const api = createApi(events, 'platform-verify', { selfMarking: false });
 
   await api.completeNodeFromBackground('platform-verify', { localhostUrl: 'http://localhost:1455/auth/callback?code=ok' });
 
   const types = events.map((event) => event.type);
-  assert.equal(types.indexOf('notify') < types.indexOf('handle-start'), true);
-  assert.equal(types.includes('handle-done'), false);
-  assert.equal(types.includes('record'), false);
+  assert.equal(types.indexOf('handle-done') < types.indexOf('notify'), true);
+  assert.equal(types.indexOf('record') < types.indexOf('notify'), true);
+  assert.equal(types.indexOf('mark') < types.indexOf('notify'), true);
+  const markEvent = events.find((event) => event.type === 'mark');
+  assert.equal(markEvent.options.preferProvidedState, true);
+  assert.equal(markEvent.options.logPrefix, '流程最终节点完成');
+});
 
-  await new Promise((resolve) => setTimeout(resolve, 40));
+test('completeNodeFromBackground skips explicit final mark when node self-marks via handleStepData', async () => {
+  const events = [];
+  const api = createApi(events, 'platform-verify', { selfMarking: true });
 
-  const settledTypes = events.map((event) => event.type);
-  assert.equal(settledTypes.includes('handle-done'), true);
-  assert.equal(settledTypes.includes('record'), true);
+  await api.completeNodeFromBackground('platform-verify', { localhostUrl: 'http://localhost:1455/auth/callback?code=ok' });
+
+  const types = events.map((event) => event.type);
+  assert.equal(types.indexOf('handle-done') < types.indexOf('notify'), true);
+  assert.equal(types.indexOf('record') < types.indexOf('notify'), true);
+  assert.equal(types.includes('mark'), false);
 });
 
 test('completeNodeFromBackground keeps non-final node data handling before completion signal', async () => {
@@ -123,4 +138,5 @@ test('completeNodeFromBackground keeps non-final node data handling before compl
   const types = events.map((event) => event.type);
   assert.equal(types.indexOf('handle-done') < types.indexOf('notify'), true);
   assert.equal(types.includes('record'), false);
+  assert.equal(types.includes('mark'), false);
 });

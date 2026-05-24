@@ -29,6 +29,22 @@ function normalizeOutlookAliasMaxPerAccount(value) {
   return numeric > 0 ? Math.min(numeric, 50) : 5;
 }
 
+function normalizeOutlookEmailPlusUsedEmails(value = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const normalized = {};
+  for (const [rawKey, rawEntry] of Object.entries(value)) {
+    const email = String(rawEntry?.email || rawKey || '').trim().toLowerCase();
+    if (!email) continue;
+    normalized[email] = {
+      email,
+      usedAt: Number.isFinite(Number(rawEntry?.usedAt)) ? Number(rawEntry.usedAt) : 0,
+      reason: String(rawEntry?.reason || '').trim(),
+      source: String(rawEntry?.source || 'auto').trim(),
+    };
+  }
+  return normalized;
+}
+
 function makeProvider({ initialState = {}, claimResults = [] } = {}) {
   const bag = makeStateBag(initialState);
   const claims = [...claimResults];
@@ -59,7 +75,7 @@ function makeProvider({ initialState = {}, claimResults = [] } = {}) {
     pool,
     buildOutlookPayPalAliasEmail,
     normalizeOutlookAliasMaxPerAccount,
-    normalizeHotmailAliasUsage: (raw) => (raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {}),
+    normalizeOutlookEmailPlusUsedEmails,
   });
   return { provider, bag, completed, released };
 }
@@ -71,7 +87,8 @@ const baseConfig = {
     defaultProjectKey: 'gpt',
     callerId: 'GuJumpgate',
   },
-  outlookEmailPlusAliasUsage: {},
+  outlookEmailPlusUsedEmails: {},
+  outlookEmailPlusAliasEnabled: true,
 };
 
 test('ensureEmail claims a new base when no current account', async () => {
@@ -86,19 +103,14 @@ test('ensureEmail claims a new base when no current account', async () => {
 });
 
 test('ensureEmail skips already-used aliases and assigns next', async () => {
-  const usage = {
-    7: {
-      aliases: {
-        'foo+paypal1@hotmail.com': { email: 'foo+PayPal1@hotmail.com', used: true },
-        'foo+paypal2@hotmail.com': { email: 'foo+PayPal2@hotmail.com', used: true },
-      },
-      updatedAt: 1,
-    },
+  const usedEmails = {
+    'foo+paypal1@hotmail.com': { email: 'foo+paypal1@hotmail.com', usedAt: 1, reason: 'registered', source: 'auto' },
+    'foo+paypal2@hotmail.com': { email: 'foo+paypal2@hotmail.com', usedAt: 1, reason: 'registered', source: 'auto' },
   };
   const { provider } = makeProvider({
     initialState: {
       ...baseConfig,
-      outlookEmailPlusAliasUsage: usage,
+      outlookEmailPlusUsedEmails: usedEmails,
       outlookEmailPlusAccount: { accountId: 7, email: 'foo@hotmail.com', claimToken: 'c', callerId: 'GuJumpgate', taskId: 't' },
     },
   });
@@ -107,18 +119,16 @@ test('ensureEmail skips already-used aliases and assigns next', async () => {
 });
 
 test('ensureEmail rotates to new base when aliases exhausted', async () => {
-  const exhaustedUsage = {
-    7: {
-      aliases: Object.fromEntries(
-        [1, 2, 3, 4, 5].map((i) => [`foo+paypal${i}@hotmail.com`, { email: `foo+PayPal${i}@hotmail.com`, used: true }]),
-      ),
-      updatedAt: 1,
-    },
-  };
+  const usedEmails = Object.fromEntries(
+    [1, 2, 3, 4, 5].map((i) => {
+      const k = `foo+paypal${i}@hotmail.com`;
+      return [k, { email: k, usedAt: 1, reason: 'registered', source: 'auto' }];
+    }),
+  );
   const { provider, completed } = makeProvider({
     initialState: {
       ...baseConfig,
-      outlookEmailPlusAliasUsage: exhaustedUsage,
+      outlookEmailPlusUsedEmails: usedEmails,
       outlookEmailPlusAccount: { accountId: 7, email: 'foo@hotmail.com', claimToken: 'c', callerId: 'GuJumpgate', taskId: 't' },
     },
     claimResults: [{ accountId: 8, email: 'bar@hotmail.com', claimToken: 'c2', callerId: 'GuJumpgate', taskId: 't2', projectKey: 'gpt' }],
@@ -131,7 +141,7 @@ test('ensureEmail rotates to new base when aliases exhausted', async () => {
   assert.equal(completed[0].result, 'success');
 });
 
-test('markAliasUsed flags the alias as used in usage map', async () => {
+test('markAliasUsed writes email to outlookEmailPlusUsedEmails', async () => {
   const { provider, bag } = makeProvider({
     initialState: {
       ...baseConfig,
@@ -139,9 +149,11 @@ test('markAliasUsed flags the alias as used in usage map', async () => {
     },
   });
   await provider.markAliasUsed('baz+PayPal1@hotmail.com', 'registered');
-  const entry = bag.snapshot().outlookEmailPlusAliasUsage['9'].aliases['baz+paypal1@hotmail.com'];
-  assert.equal(entry.used, true);
+  const usedEmails = bag.snapshot().outlookEmailPlusUsedEmails;
+  const entry = usedEmails['baz+paypal1@hotmail.com'];
+  assert.ok(entry, '条目应存在');
   assert.equal(entry.reason, 'registered');
+  assert.equal(entry.source, 'auto');
 });
 
 test('isAliasCapacityExhausted respects per-account max', async () => {
@@ -149,18 +161,15 @@ test('isAliasCapacityExhausted respects per-account max', async () => {
     initialState: { ...baseConfig, outlookAliasMaxPerAccount: 2 },
   });
   const account = { accountId: 10, email: 'x@hotmail.com' };
-  const usageBag = {
-    outlookEmailPlusAliasUsage: {
-      10: {
-        aliases: {
-          'x+paypal1@hotmail.com': { email: 'x+PayPal1@hotmail.com', used: true },
-          'x+paypal2@hotmail.com': { email: 'x+PayPal2@hotmail.com', used: true },
-        },
-      },
+  const usedState = {
+    outlookEmailPlusUsedEmails: {
+      'x+paypal1@hotmail.com': { email: 'x+paypal1@hotmail.com', usedAt: 1, reason: 'r', source: 'auto' },
+      'x+paypal2@hotmail.com': { email: 'x+paypal2@hotmail.com', usedAt: 1, reason: 'r', source: 'auto' },
     },
     outlookAliasMaxPerAccount: 2,
+    outlookEmailPlusAliasEnabled: true,
   };
-  assert.equal(provider.isAliasCapacityExhausted(usageBag, account), true);
+  assert.equal(provider.isAliasCapacityExhausted(usedState, account), true);
 });
 
 test('manual email mode 旁路 pool：ensureEmail 返回手动邮箱不调 claim', async () => {
@@ -201,7 +210,7 @@ test('manual email mode：即使遗留 pool account，markAliasUsed/finalize/rel
   assert.equal(released.length, 0, '不应触发 claim-release');
 });
 
-test('非 manual mode：markAliasUsed 仍按原逻辑写入 alias usage', async () => {
+test('非 manual mode：markAliasUsed 写入 outlookEmailPlusUsedEmails', async () => {
   const account = { accountId: 11, email: 'base@hotmail.com', claimToken: 'tk' };
   const { provider, bag } = makeProvider({
     initialState: {
@@ -211,7 +220,39 @@ test('非 manual mode：markAliasUsed 仍按原逻辑写入 alias usage', async 
   });
   const result = await provider.markAliasUsed('base+PayPal1@hotmail.com', 'registered');
   assert.ok(result, '应返回 alias entry');
-  assert.equal(result.used, true);
-  const usage = bag.snapshot().outlookEmailPlusAliasUsage;
-  assert.equal(usage['11'].aliases['base+paypal1@hotmail.com'].used, true);
+  assert.equal(result.reason, 'registered');
+  const usedEmails = bag.snapshot().outlookEmailPlusUsedEmails;
+  assert.ok(usedEmails['base+paypal1@hotmail.com'], '应在 usedEmails 中存在');
+  assert.equal(usedEmails['base+paypal1@hotmail.com'].reason, 'registered');
+});
+
+test('alias disabled：ensureEmail 使用 base 邮箱，已使用则重新领取', async () => {
+  const usedEmails = {
+    'first@hotmail.com': { email: 'first@hotmail.com', usedAt: 1, reason: 'registered', source: 'auto' },
+  };
+  const { provider, released } = makeProvider({
+    initialState: {
+      ...baseConfig,
+      outlookEmailPlusAliasEnabled: false,
+      outlookEmailPlusUsedEmails: usedEmails,
+      outlookEmailPlusAccount: { accountId: 1, email: 'first@hotmail.com', claimToken: 'c1', callerId: 'GuJumpgate', taskId: 't1' },
+    },
+    claimResults: [
+      { accountId: 2, email: 'second@hotmail.com', claimToken: 'c2', callerId: 'GuJumpgate', taskId: 't2', projectKey: 'gpt' },
+    ],
+  });
+  const result = await provider.ensureEmail();
+  assert.equal(result.email, 'second@hotmail.com');
+  assert.equal(result.account.accountId, 2);
+  assert.equal(released.length, 1, 'first 邮箱已使用，应触发 release');
+  assert.equal(released[0].account.accountId, 1);
+});
+
+test('markEmailUsedGlobally 手动添加持久化记录', async () => {
+  const { provider, bag } = makeProvider({ initialState: { ...baseConfig } });
+  await provider.markEmailUsedGlobally('test@outlook.com', 'manual', 'manual');
+  const usedEmails = bag.snapshot().outlookEmailPlusUsedEmails;
+  assert.ok(usedEmails['test@outlook.com'], '应在 usedEmails 中存在');
+  assert.equal(usedEmails['test@outlook.com'].source, 'manual');
+  assert.equal(usedEmails['test@outlook.com'].reason, 'manual');
 });

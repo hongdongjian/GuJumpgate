@@ -1735,6 +1735,15 @@
           return { ok: true, manualEmail };
         }
 
+        case 'UPSERT_OUTLOOK_EMAIL_PLUS_ALIAS_ENABLED': {
+          const aliasEnabled = Boolean(message.payload?.aliasEnabled);
+          await setPersistentSettings({ outlookEmailPlusAliasEnabled: aliasEnabled });
+          await setState({ outlookEmailPlusAliasEnabled: aliasEnabled });
+          broadcastDataUpdate({ outlookEmailPlusAliasEnabled: aliasEnabled });
+          await addLog(`outlookEmailPlus 别名模式已${aliasEnabled ? '启用' : '禁用'}。`, 'info');
+          return { ok: true, aliasEnabled };
+        }
+
         case 'TEST_OUTLOOK_EMAIL_PLUS_CONFIG': {
           if (!outlookEmailPlusPool || typeof outlookEmailPlusPool.getHealth !== 'function') {
             throw new Error('outlookEmailPlus 模块未加载。');
@@ -1759,6 +1768,41 @@
           await addLog('outlookEmailPlus 本地池状态已清空。', 'warn');
           return { ok: true };
         }
+
+        case 'ADD_OUTLOOK_EMAIL_PLUS_USED_EMAIL': {
+          const email = String(message.payload?.email || '').trim().toLowerCase();
+          if (!email) {
+            throw new Error('邮箱地址不能为空。');
+          }
+          if (!outlookEmailPlusProvider || typeof outlookEmailPlusProvider.markEmailUsedGlobally !== 'function') {
+            throw new Error('outlookEmailPlus 模块未加载。');
+          }
+          const entry = await outlookEmailPlusProvider.markEmailUsedGlobally(email, 'manual', 'manual');
+          return { ok: true, entry };
+        }
+
+        case 'REMOVE_OUTLOOK_EMAIL_PLUS_USED_EMAIL': {
+          const email = String(message.payload?.email || '').trim().toLowerCase();
+          if (!email) {
+            throw new Error('邮箱地址不能为空。');
+          }
+          const state = await getState();
+          const usedEmails = { ...(state?.outlookEmailPlusUsedEmails || {}) };
+          delete usedEmails[email];
+          await setPersistentSettings({ outlookEmailPlusUsedEmails: usedEmails });
+          await setState({ outlookEmailPlusUsedEmails: usedEmails });
+          broadcastDataUpdate({ outlookEmailPlusUsedEmails: usedEmails });
+          return { ok: true };
+        }
+
+        case 'CLEAR_OUTLOOK_EMAIL_PLUS_USED_EMAILS': {
+          await setPersistentSettings({ outlookEmailPlusUsedEmails: {} });
+          await setState({ outlookEmailPlusUsedEmails: {} });
+          broadcastDataUpdate({ outlookEmailPlusUsedEmails: {} });
+          await addLog('outlookEmailPlus 已使用邮箱列表已清空。', 'warn');
+          return { ok: true };
+        }
+
 
         case 'UPSERT_MAIL2925_ACCOUNT': {
           const account = await upsertMail2925Account(message.payload || {});

@@ -56,6 +56,8 @@ test('markCurrentRegistrationAccountUsed uses fresh state when checkout passes s
   const factory = new Function(`
 const patchCalls = [];
 const logs = [];
+const OUTLOOK_EMAIL_PLUS_PROVIDER = 'outlook-email-plus';
+const outlookEmailPlusProvider = null;
 async function getState() {
   return {
     mailProvider: 'hotmail',

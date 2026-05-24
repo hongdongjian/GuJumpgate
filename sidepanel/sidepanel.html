@@ -933,6 +933,28 @@
           <button id="btn-reset-outlook-email-plus-pool" class="btn btn-ghost btn-sm" type="button">清空本地池</button>
         </div>
       </div>
+      <div class="data-row" id="row-outlook-email-plus-alias-enabled">
+        <span class="data-label">启用 + 别名</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="input-outlook-email-plus-alias-enabled" />
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div class="data-row">
+        <span class="data-label">已使用邮箱</span>
+        <div class="data-inline">
+          <button id="btn-toggle-oep-used-list" class="btn btn-ghost btn-sm" type="button" aria-expanded="false">展开列表（0）</button>
+          <button id="btn-clear-oep-used-emails" class="btn btn-ghost btn-sm" type="button" disabled>清空全部</button>
+        </div>
+      </div>
+      <div id="oep-used-list-shell" class="hotmail-list-shell is-collapsed">
+        <div class="data-row">
+          <input type="text" id="input-oep-add-used-email" class="data-input mono"
+            placeholder="手动添加邮箱（回车或点添加）" autocomplete="off" />
+          <button id="btn-oep-add-used-email" class="btn btn-outline btn-sm" type="button">添加</button>
+        </div>
+        <div id="oep-used-emails-list" class="hotmail-accounts-list"></div>
+      </div>
     </div>
     <div id="hotmail-section" class="data-card hotmail-card" style="display:none;">
       <div class="section-mini-header">
@@ -1950,6 +1972,7 @@
   <script src="form-dialog.js"></script>
   <script src="editable-list-picker.js"></script>
   <script src="hotmail-manager.js"></script>
+  <script src="outlook-email-plus-manager.js"></script>
   <script src="paypal-manager.js"></script>
   <script src="mail-2925-manager.js"></script>
   <script src="icloud-manager.js"></script>

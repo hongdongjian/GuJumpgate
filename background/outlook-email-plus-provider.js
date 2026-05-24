@@ -9,36 +9,10 @@
 })(typeof self !== 'undefined' ? self : globalThis, function createOutlookEmailPlusProviderModule() {
   const OUTLOOK_EMAIL_PLUS_PROVIDER = 'outlook-email-plus';
   const POOL_PROVIDER_FILTER = 'outlook';
+  const MAX_CLAIM_RETRIES = 5;
 
   function normalizeEmailKey(email = '') {
     return String(email || '').trim().toLowerCase();
-  }
-
-  function getAliasUsageKey(account = {}) {
-    if (!account) return '';
-    if (account.accountId !== undefined && account.accountId !== null) {
-      return String(account.accountId);
-    }
-    return normalizeEmailKey(account.email);
-  }
-
-  function ensureUsageBucket(usage, key) {
-    if (!key) return null;
-    if (usage[key]) return usage[key];
-    usage[key] = { aliases: {}, updatedAt: 0 };
-    return usage[key];
-  }
-
-  function normalizeUsage(rawUsage = {}, normalizer) {
-    if (typeof normalizer === 'function') {
-      return normalizer(rawUsage);
-    }
-    return rawUsage && typeof rawUsage === 'object' && !Array.isArray(rawUsage) ? { ...rawUsage } : {};
-  }
-
-  function countUsedAliases(bucket) {
-    if (!bucket || !bucket.aliases) return 0;
-    return Object.values(bucket.aliases).filter((entry) => entry?.used).length;
   }
 
   function generateTaskId() {
@@ -57,10 +31,9 @@
       addLog,
       setEmailState,
       pool,
-      buildOutlookPlusAliasEmail,
       buildOutlookPayPalAliasEmail,
       normalizeOutlookAliasMaxPerAccount,
-      normalizeHotmailAliasUsage,
+      normalizeOutlookEmailPlusUsedEmails,
     } = deps;
 
     if (!getState || !setState || !setPersistentSettings || !pool || !buildOutlookPayPalAliasEmail) {
@@ -81,7 +54,26 @@
     }
 
     function getMaxAliases(state) {
-      return normalizeOutlookAliasMaxPerAccount(state?.outlookAliasMaxPerAccount);
+      return typeof normalizeOutlookAliasMaxPerAccount === 'function'
+        ? normalizeOutlookAliasMaxPerAccount(state?.outlookAliasMaxPerAccount)
+        : 5;
+    }
+
+    function isAliasEnabled(state) {
+      return state?.outlookEmailPlusAliasEnabled !== false;
+    }
+
+    function getUsedEmails(state) {
+      return typeof normalizeOutlookEmailPlusUsedEmails === 'function'
+        ? normalizeOutlookEmailPlusUsedEmails(state?.outlookEmailPlusUsedEmails)
+        : (state?.outlookEmailPlusUsedEmails || {});
+    }
+
+    function isEmailUsedGlobally(email, state) {
+      const key = normalizeEmailKey(email);
+      if (!key) return false;
+      const usedEmails = getUsedEmails(state);
+      return Boolean(usedEmails[key]);
     }
 
     async function persistState(patch) {
@@ -90,24 +82,22 @@
       broadcast(patch);
     }
 
-    async function setUsageEntry(account, aliasEmail, updates) {
-      const accountKey = getAliasUsageKey(account);
-      const aliasKey = normalizeEmailKey(aliasEmail);
-      if (!accountKey || !aliasKey) return null;
+    async function markEmailUsedGlobally(email, reason = 'auto', source = 'auto') {
+      const key = normalizeEmailKey(email);
+      if (!key) return null;
       const state = await getState();
-      const usage = normalizeUsage(state.outlookEmailPlusAliasUsage, normalizeHotmailAliasUsage);
-      const bucket = ensureUsageBucket(usage, accountKey);
-      const previous = bucket.aliases[aliasKey] || {};
-      bucket.aliases[aliasKey] = {
-        email: String(aliasEmail || previous.email || '').trim(),
-        used: Boolean(updates?.used ?? previous.used ?? false),
-        lastCheckedAt: Number.isFinite(Number(updates?.lastCheckedAt)) ? Number(updates.lastCheckedAt) : Date.now(),
-        reason: String(updates?.reason || previous.reason || '').trim(),
+      const usedEmails = getUsedEmails(state);
+      const next = {
+        ...usedEmails,
+        [key]: {
+          email: key,
+          usedAt: Date.now(),
+          reason: String(reason || '').trim(),
+          source: String(source || 'auto').trim(),
+        },
       };
-      bucket.updatedAt = Date.now();
-      const nextUsage = { ...usage, [accountKey]: bucket };
-      await persistState({ outlookEmailPlusAliasUsage: nextUsage });
-      return bucket.aliases[aliasKey];
+      await persistState({ outlookEmailPlusUsedEmails: next });
+      return next[key];
     }
 
     async function claimNewBaseEmail(config) {
@@ -166,30 +156,73 @@
       return account;
     }
 
-    function isAliasCapacityExhausted(state, account) {
-      if (!account) return true;
-      const usage = normalizeUsage(state.outlookEmailPlusAliasUsage, normalizeHotmailAliasUsage);
-      const bucket = usage[getAliasUsageKey(account)];
-      return countUsedAliases(bucket) >= getMaxAliases(state);
-    }
-
     function findUnusedAlias(state, account) {
-      const usage = normalizeUsage(state.outlookEmailPlusAliasUsage, normalizeHotmailAliasUsage);
-      const bucket = usage[getAliasUsageKey(account)] || { aliases: {} };
       const max = getMaxAliases(state);
-      const usedKeys = new Set();
-      for (const [key, entry] of Object.entries(bucket.aliases || {})) {
-        if (entry?.used) usedKeys.add(key);
-      }
       for (let index = 1; index <= max; index += 1) {
         const alias = buildOutlookPayPalAliasEmail(account.email, index);
         if (!alias) continue;
-        const aliasKey = normalizeEmailKey(alias);
-        if (!usedKeys.has(aliasKey)) {
+        if (!isEmailUsedGlobally(alias, state)) {
           return alias;
         }
       }
       return '';
+    }
+
+    function isAliasCapacityExhausted(state, account) {
+      if (!account) return true;
+      if (!isAliasEnabled(state)) {
+        return isEmailUsedGlobally(account.email, state);
+      }
+      return !findUnusedAlias(state, account);
+    }
+
+    async function ensureEmailWithAlias(config, state) {
+      let account = state.outlookEmailPlusAccount;
+
+      for (let attempt = 0; attempt < MAX_CLAIM_RETRIES; attempt += 1) {
+        if (!account) {
+          account = await claimNewBaseEmail(config);
+        }
+
+        const currentState = await getState();
+        const alias = findUnusedAlias(currentState, account);
+        if (alias) {
+          if (typeof setEmailState === 'function') {
+            await setEmailState(alias, { source: 'generated:outlook-email-plus' });
+          }
+          return { account, email: alias, registrationAliasEmail: alias };
+        }
+
+        log(`outlookEmailPlus：${account.email} 的所有别名已用完，切换到下一个基础邮箱。`, 'info');
+        await finalizeCurrentAccount('success', '所有别名已用完');
+        account = null;
+      }
+
+      throw new Error('outlookEmailPlus 无法分配可用别名，请检查上限设置或已使用邮箱列表。');
+    }
+
+    async function ensureEmailWithoutAlias(config, state) {
+      let account = state.outlookEmailPlusAccount;
+
+      for (let attempt = 0; attempt < MAX_CLAIM_RETRIES; attempt += 1) {
+        if (!account) {
+          account = await claimNewBaseEmail(config);
+        }
+
+        const currentState = await getState();
+        if (!isEmailUsedGlobally(account.email, currentState)) {
+          if (typeof setEmailState === 'function') {
+            await setEmailState(account.email, { source: 'generated:outlook-email-plus' });
+          }
+          return { account, email: account.email, registrationAliasEmail: account.email };
+        }
+
+        log(`outlookEmailPlus：基础邮箱 ${account.email} 已使用，释放并切换。`, 'info');
+        await releaseCurrentAccount('邮箱已在已使用列表中');
+        account = null;
+      }
+
+      throw new Error('outlookEmailPlus 无法分配可用基础邮箱，请检查已使用邮箱列表。');
     }
 
     async function ensureEmail(options = {}) {
@@ -213,36 +246,10 @@
         throw new Error('请先在设置面板填写 outlookEmailPlus 的服务端地址与 API Key。');
       }
 
-      let account = state.outlookEmailPlusAccount;
-      if (account && isAliasCapacityExhausted(state, account)) {
-        log(`outlookEmailPlus：${account.email} 的别名额度已用完，提交 claim-complete 并切换。`, 'info');
-        await finalizeCurrentAccount('success', '所有别名已用完');
-        account = null;
+      if (isAliasEnabled(state)) {
+        return ensureEmailWithAlias(config, state);
       }
-      if (!account) {
-        account = await claimNewBaseEmail(config);
-      }
-
-      let alias = findUnusedAlias(await getState(), account);
-      if (!alias) {
-        log(`outlookEmailPlus：${account.email} 在本次扫描中未找到可用别名，触发再次切换。`, 'warn');
-        await finalizeCurrentAccount('success', '所有别名已用完');
-        account = await claimNewBaseEmail(config);
-        alias = findUnusedAlias(await getState(), account);
-        if (!alias) {
-          throw new Error('outlookEmailPlus 无法分配可用别名，请检查上限设置。');
-        }
-      }
-
-      await setUsageEntry(account, alias, { used: false, reason: 'allocated' });
-      if (typeof setEmailState === 'function') {
-        await setEmailState(alias, { source: 'generated:outlook-email-plus' });
-      }
-      return {
-        account,
-        email: alias,
-        registrationAliasEmail: alias,
-      };
+      return ensureEmailWithoutAlias(config, state);
     }
 
     async function markAliasUsed(aliasEmail, reason = 'registered') {
@@ -251,15 +258,12 @@
         return null;
       }
       const account = state.outlookEmailPlusAccount;
-      if (!account) return null;
-      return setUsageEntry(account, aliasEmail, { used: true, reason });
+      if (!account && !aliasEmail) return null;
+      return markEmailUsedGlobally(aliasEmail, reason, 'auto');
     }
 
     async function resetPool() {
-      await persistState({
-        outlookEmailPlusAccount: null,
-        outlookEmailPlusAliasUsage: {},
-      });
+      await persistState({ outlookEmailPlusAccount: null });
     }
 
     async function fetchVerificationCode(aliasEmail, options = {}) {
@@ -307,7 +311,9 @@
       fetchVerificationCode,
       finalizeCurrentAccount,
       isAliasCapacityExhausted,
+      isEmailUsedGlobally,
       markAliasUsed,
+      markEmailUsedGlobally,
       pollVerificationCode,
       releaseCurrentAccount,
       resetPool,
