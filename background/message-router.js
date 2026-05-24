@@ -1712,7 +1712,7 @@
           const normalized = {
             serverUrl: String(payload.serverUrl || '').trim(),
             apiKey: String(payload.apiKey || '').trim(),
-            defaultProjectKey: String(payload.defaultProjectKey || '').trim(),
+            defaultProjectKey: String(payload.defaultProjectKey || '').trim() || 'gpt',
             callerId: String(payload.callerId || '').trim() || 'GuJumpgate',
           };
           await setPersistentSettings({ outlookEmailPlusConfig: normalized });
@@ -1752,7 +1752,7 @@
           const config = {
             serverUrl: String(payload.serverUrl || '').trim(),
             apiKey: String(payload.apiKey || '').trim(),
-            defaultProjectKey: String(payload.defaultProjectKey || '').trim(),
+            defaultProjectKey: String(payload.defaultProjectKey || '').trim() || 'gpt',
             callerId: String(payload.callerId || 'GuJumpgate').trim(),
           };
           const health = await outlookEmailPlusPool.getHealth(config);

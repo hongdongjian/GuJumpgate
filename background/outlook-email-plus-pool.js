@@ -8,6 +8,7 @@
   }
 })(typeof self !== 'undefined' ? self : globalThis, function createOutlookEmailPlusPoolModule() {
   const DEFAULT_CALLER_ID = 'GuJumpgate';
+  const DEFAULT_PROJECT_KEY = 'gpt';
   const DEFAULT_ACTION_TIMEOUT_MS = 12000;
   const DEFAULT_FETCH_TIMEOUT_MS = 65000;
 
@@ -35,7 +36,7 @@
     return {
       serverUrl,
       apiKey,
-      defaultProjectKey: String(config?.defaultProjectKey || '').trim(),
+      defaultProjectKey: String(config?.defaultProjectKey || '').trim() || DEFAULT_PROJECT_KEY,
       callerId: String(config?.callerId || DEFAULT_CALLER_ID).trim() || DEFAULT_CALLER_ID,
     };
   }
@@ -185,6 +186,10 @@
     const normalized = normalizeConfig(config);
     const url = `${normalized.serverUrl}/api/external/pool/claim-complete`;
     const extra = { result: String(result || 'success') };
+    const projectKey = String(account?.projectKey ?? normalized.defaultProjectKey ?? '').trim();
+    if (projectKey) {
+      extra.project_key = projectKey;
+    }
     if (detail) {
       extra.detail = String(detail);
     }
@@ -228,6 +233,7 @@
   return {
     DEFAULT_ACTION_TIMEOUT_MS,
     DEFAULT_FETCH_TIMEOUT_MS,
+    DEFAULT_PROJECT_KEY,
     claimComplete,
     claimRandomEmail,
     claimRelease,

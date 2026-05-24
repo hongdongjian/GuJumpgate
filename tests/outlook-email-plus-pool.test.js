@@ -66,6 +66,37 @@ test('claimRandomEmail posts task_id and parses returned account', async () => {
   }
 });
 
+test('claimRandomEmail defaults project_key to gpt', async () => {
+  const originalFetch = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = makeFetch(async (url, init) => {
+    captured = { url, init };
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        data: {
+          account_id: 43,
+          email: 'bar@example.com',
+          claim_token: 'clm_def',
+        },
+      },
+    };
+  });
+  try {
+    const account = await pool.claimRandomEmail(
+      { serverUrl: 'https://api.example.com', apiKey: 'k' },
+      { taskId: 't-default', provider: 'outlook' },
+    );
+    assert.equal(account.projectKey, 'gpt');
+    const body = JSON.parse(captured.init.body);
+    assert.equal(body.project_key, 'gpt');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('requestJson surfaces api errors with code', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = makeFetch(async () => ({
@@ -81,6 +112,82 @@ test('requestJson surfaces api errors with code', async () => {
       ),
       (err) => err.code === 'invalid_api_key' && /bad key/.test(err.message),
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('claimComplete posts project_key from claimed account', async () => {
+  const originalFetch = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = makeFetch(async (url, init) => {
+    captured = { url, init };
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        data: { account_id: 42, pool_status: 'available' },
+      },
+    };
+  });
+  try {
+    await pool.claimComplete(
+      { serverUrl: 'https://api.example.com', apiKey: 'k' },
+      {
+        accountId: 42,
+        claimToken: 'clm_abc',
+        callerId: 'GuJumpgate',
+        taskId: 'oep-task',
+        projectKey: 'gpt',
+      },
+      'success',
+      '所有别名已用完',
+    );
+
+    assert.match(captured.url, /pool\/claim-complete$/);
+    const body = JSON.parse(captured.init.body);
+    assert.equal(body.account_id, 42);
+    assert.equal(body.claim_token, 'clm_abc');
+    assert.equal(body.caller_id, 'GuJumpgate');
+    assert.equal(body.task_id, 'oep-task');
+    assert.equal(body.result, 'success');
+    assert.equal(body.detail, '所有别名已用完');
+    assert.equal(body.project_key, 'gpt');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('claimComplete defaults project_key to gpt when account has none', async () => {
+  const originalFetch = globalThis.fetch;
+  let captured = null;
+  globalThis.fetch = makeFetch(async (url, init) => {
+    captured = { url, init };
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        data: { account_id: 42, pool_status: 'available' },
+      },
+    };
+  });
+  try {
+    await pool.claimComplete(
+      { serverUrl: 'https://api.example.com', apiKey: 'k' },
+      {
+        accountId: 42,
+        claimToken: 'clm_abc',
+        callerId: 'GuJumpgate',
+        taskId: 'oep-task',
+      },
+      'success',
+      '所有别名已用完',
+    );
+
+    const body = JSON.parse(captured.init.body);
+    assert.equal(body.project_key, 'gpt');
   } finally {
     globalThis.fetch = originalFetch;
   }

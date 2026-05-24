@@ -9,6 +9,7 @@
 })(typeof self !== 'undefined' ? self : globalThis, function createOutlookEmailPlusProviderModule() {
   const OUTLOOK_EMAIL_PLUS_PROVIDER = 'outlook-email-plus';
   const POOL_PROVIDER_FILTER = 'outlook';
+  const DEFAULT_PROJECT_KEY = 'gpt';
   const MAX_CLAIM_RETRIES = 5;
 
   function normalizeEmailKey(email = '') {
@@ -48,7 +49,7 @@
       return {
         serverUrl: String(config.serverUrl || '').trim(),
         apiKey: String(config.apiKey || '').trim(),
-        defaultProjectKey: String(config.defaultProjectKey || '').trim(),
+        defaultProjectKey: String(config.defaultProjectKey || '').trim() || DEFAULT_PROJECT_KEY,
         callerId: String(config.callerId || '').trim() || 'GuJumpgate',
       };
     }
