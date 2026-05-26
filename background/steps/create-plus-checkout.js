@@ -423,6 +423,11 @@
       }
     }
 
+    function isBuiltinPlusCheckoutCloudConversionApiUrl(value = '') {
+      return normalizePlusCheckoutCloudConversionApiUrl(value)
+        === normalizePlusCheckoutCloudConversionApiUrl(BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_URL);
+    }
+
     function isPlusCheckoutCloudConversionEnabled(state = {}, paymentMethod = PLUS_PAYMENT_METHOD_PAYPAL) {
       return normalizePlusPaymentMethod(paymentMethod) === PLUS_PAYMENT_METHOD_PAYPAL
         && Boolean(state?.plusCheckoutCloudConversionEnabled);
@@ -3280,7 +3285,12 @@ function FindProxyForURL(url, host) {
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'Content-Type': 'application/json',
       };
-      const apiKey = String(state?.plusCheckoutCloudConversionApiKey || BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_KEY).trim();
+      const configuredApiKey = String(state?.plusCheckoutCloudConversionApiKey || '').trim();
+      const apiKey = configuredApiKey || (
+        isBuiltinPlusCheckoutCloudConversionApiUrl(apiUrl)
+          ? BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_KEY
+          : ''
+      );
       if (apiKey) {
         headers['X-API-Key'] = apiKey;
       }

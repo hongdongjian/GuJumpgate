@@ -356,6 +356,18 @@
           <span id="display-plus-checkout-conversion-proxy-test-result" class="data-value mono plus-checkout-conversion-proxy-test-result">未测试</span>
         </div>
       </div>
+      <div class="data-row" id="row-plus-checkout-cloud-conversion-api-url" style="display:none;">
+        <span class="data-label">云端服务地址</span>
+        <input type="text" id="input-plus-checkout-cloud-conversion-api-url" class="data-input mono"
+          placeholder="https://your-domain.example/api/checkout 或 http://127.0.0.1:8080/api/checkout"
+          title="启用云端支付转换后，第 6 步会把 accessToken 提交到这个接口创建订阅链接" />
+      </div>
+      <div class="data-row" id="row-plus-checkout-cloud-conversion-api-key" style="display:none;">
+        <span class="data-label">云端 API Key</span>
+        <input type="password" id="input-plus-checkout-cloud-conversion-api-key" class="data-input mono"
+          placeholder="可留空；非空时通过 X-API-Key 请求头发送"
+          title="对应 checkout-converter 服务的 CHECKOUT_CONVERTER_API_KEY；留空则不发送 X-API-Key" />
+      </div>
       <div class="data-row" id="row-hosted-checkout-verification-url" style="display:none;">
         <span class="data-label">验证码接口</span>
         <input type="text" id="input-hosted-checkout-verification-url" class="data-input"

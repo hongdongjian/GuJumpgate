@@ -4550,8 +4550,13 @@ function collectSettingsPayload() {
     plusCheckoutCloudConversionEnabled: typeof inputPlusCheckoutCloudConversionEnabled !== 'undefined' && inputPlusCheckoutCloudConversionEnabled
       ? Boolean(inputPlusCheckoutCloudConversionEnabled.checked)
       : false,
-    plusCheckoutCloudConversionApiUrl: BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_URL,
-    plusCheckoutCloudConversionApiKey: BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_KEY,
+    plusCheckoutCloudConversionApiUrl: typeof inputPlusCheckoutCloudConversionApiUrl !== 'undefined' && inputPlusCheckoutCloudConversionApiUrl
+      ? (normalizePlusCheckoutCloudConversionApiUrlValue(inputPlusCheckoutCloudConversionApiUrl.value)
+        || BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_URL)
+      : BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_URL,
+    plusCheckoutCloudConversionApiKey: typeof inputPlusCheckoutCloudConversionApiKey !== 'undefined' && inputPlusCheckoutCloudConversionApiKey
+      ? normalizePlusCheckoutCloudConversionApiKeyValue(inputPlusCheckoutCloudConversionApiKey.value)
+      : BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_KEY,
     plusCheckoutConversionProxyUrl: typeof inputPlusCheckoutConversionProxy !== 'undefined' && inputPlusCheckoutConversionProxy
       ? normalizePlusCheckoutConversionProxyUrlValue(inputPlusCheckoutConversionProxy.value)
       : '',
@@ -16892,15 +16897,15 @@ function validatePlusCheckoutCloudConversionConfig(options = {}) {
   }
 
   const normalizedApiUrl = normalizePlusCheckoutCloudConversionApiUrlValue(
-    BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_URL
-      || (typeof inputPlusCheckoutCloudConversionApiUrl !== 'undefined' && inputPlusCheckoutCloudConversionApiUrl
-        ? inputPlusCheckoutCloudConversionApiUrl.value
-        : latestState?.plusCheckoutCloudConversionApiUrl)
+    (typeof inputPlusCheckoutCloudConversionApiUrl !== 'undefined' && inputPlusCheckoutCloudConversionApiUrl
+      ? inputPlusCheckoutCloudConversionApiUrl.value
+      : latestState?.plusCheckoutCloudConversionApiUrl)
+    || BUILTIN_PLUS_CHECKOUT_CLOUD_CONVERSION_API_URL
   );
   if (!normalizedApiUrl) {
     return {
       valid: false,
-      message: '云端支付转换服务地址未内置成功，请联系开发者检查扩展配置。',
+      message: '请填写云端支付转换服务地址。',
     };
   }
 
@@ -16910,6 +16915,9 @@ function validatePlusCheckoutCloudConversionConfig(options = {}) {
       throw new Error('unsupported protocol');
     }
   } catch {
+    if (options.focusOnError && typeof inputPlusCheckoutCloudConversionApiUrl !== 'undefined' && inputPlusCheckoutCloudConversionApiUrl) {
+      inputPlusCheckoutCloudConversionApiUrl.focus();
+    }
     return {
       valid: false,
       message: '云端支付转换服务地址不是有效的 HTTP/HTTPS URL。',
