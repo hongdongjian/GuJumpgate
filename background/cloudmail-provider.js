@@ -184,22 +184,30 @@
         || generateCloudMailAliasLocalPart();
       const address = `${requestedLocal}@${ensuredConfig.domain}`.toLowerCase();
       const payload = { list: [{ email: address }] };
+      let addUserResult = null;
       try {
-        await requestCloudMailJson(ensuredConfig, '/api/public/addUser', { method: 'POST', payload });
+        addUserResult = await requestCloudMailJson(ensuredConfig, '/api/public/addUser', { method: 'POST', payload });
       } catch (err) {
         if (/token|unauthor|401/i.test(String(err?.message || ''))) {
           const refreshed = await ensureCloudMailToken(latestState, { forceRefresh: true });
-          await requestCloudMailJson(refreshed.config, '/api/public/addUser', { method: 'POST', payload });
+          addUserResult = await requestCloudMailJson(refreshed.config, '/api/public/addUser', { method: 'POST', payload });
         } else {
           throw err;
         }
       }
-      await persistResolvedEmailState(latestState, address, {
+      const resolvedAddress = normalizeCloudMailAddress(
+        addUserResult?.data?.email
+        || addUserResult?.data?.list?.[0]?.email
+        || addUserResult?.email
+        || addUserResult?.list?.[0]?.email
+        || address
+      ) || address;
+      await persistResolvedEmailState(latestState, resolvedAddress, {
         source: 'generated:cloudmail',
         preserveAccountIdentity: Boolean(options?.preserveAccountIdentity),
       });
-      await addLog(`Cloud Mail：已生成 ${address}`, 'ok');
-      return address;
+      await addLog(`Cloud Mail：已生成 ${resolvedAddress}`, 'ok');
+      return resolvedAddress;
     }
 
     function summarizeCloudMailMessagesForLog(messages) {
